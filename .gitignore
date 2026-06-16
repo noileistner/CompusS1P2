@@ -1,0 +1,12 @@
+build/
+dist/
+nbproject/private/
+
+*.hex
+*.elf
+*.map
+*.lst
+*.o
+*.d
+
+.DS_Store
