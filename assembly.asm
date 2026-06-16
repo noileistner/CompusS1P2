@@ -1,3 +1,4 @@
+; hello wassup
 LIST P=PIC18F4321	F=INHX32     
     #include <p18f4321.inc> 
     CONFIG  OSC=INTIO2; Internal oscillator @ 16MHz 
