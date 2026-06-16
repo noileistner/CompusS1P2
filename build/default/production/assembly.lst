@@ -1,4 +1,4 @@
-MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  18:51:11         PAGE  1
+MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  19:32:24         PAGE  1
 
 
 LOC  OBJECT CODE     LINE SOURCE TEXT
@@ -57,7 +57,7 @@ Warning[215]: Processor superseded by command line.  Verify processor symbol.
                       00039         
 00001E 0E40           00040     MOVLW   b'01000000'
 000020 6E9B           00041     MOVWF   OSCTUNE,0
-MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  18:51:11         PAGE  2
+MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  19:32:24         PAGE  2
 
 
 LOC  OBJECT CODE     LINE SOURCE TEXT
@@ -116,7 +116,7 @@ LOC  OBJECT CODE     LINE SOURCE TEXT
                       00092    
 00005A                00093 MENU_LEFT
 00005A EC?? F???      00094    CALL WAIT_DEBOUNCE
-MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  18:51:11         PAGE  3
+MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  19:32:24         PAGE  3
 
 
 LOC  OBJECT CODE     LINE SOURCE TEXT
@@ -175,7 +175,7 @@ LOC  OBJECT CODE     LINE SOURCE TEXT
 0000C2                00145 RGB_1
 0000C2 888C           00146    BSF  LATD,4,0
 0000C4 9A8C           00147    BCF  LATD,5,0
-MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  18:51:11         PAGE  4
+MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  19:32:24         PAGE  4
 
 
 LOC  OBJECT CODE     LINE SOURCE TEXT
@@ -234,7 +234,7 @@ LOC  OBJECT CODE     LINE SOURCE TEXT
 000108 0EC0           00198    MOVLW    .192
 00010A 6E24           00199    MOVWF    LED_COUNT, 0 
 00010C                00200 SEND_LOOP
-MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  18:51:11         PAGE  5
+MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  19:32:24         PAGE  5
 
 
 LOC  OBJECT CODE     LINE SOURCE TEXT
@@ -293,7 +293,7 @@ LOC  OBJECT CODE     LINE SOURCE TEXT
 000154                00251 BYTE_LOOP
 000154 EC?? F???      00252    CALL     SEND_BIT
 000158 2E24           00253    DECFSZ   BIT_COUNT, 1, 0
-MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  18:51:11         PAGE  6
+MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  19:32:24         PAGE  6
 
 
 LOC  OBJECT CODE     LINE SOURCE TEXT
@@ -352,7 +352,7 @@ LOC  OBJECT CODE     LINE SOURCE TEXT
        0000 0000 0000 
        4040 0040 
 000230 4040 0040 0000 00300     DB  0x40,0x40,0x40,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x40,0x40,0x40
-MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  18:51:11         PAGE  7
+MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  19:32:24         PAGE  7
 
 
 LOC  OBJECT CODE     LINE SOURCE TEXT
@@ -368,7 +368,7 @@ LOC  OBJECT CODE     LINE SOURCE TEXT
                       00304     
                       00305     
                       00306     END
-MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  18:51:11         PAGE  8
+MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  19:32:24         PAGE  8
 
 
 SYMBOL TABLE
@@ -427,7 +427,7 @@ BCLIP                             00000003
 BF                                00000000
 BGST                              00000005
 BIT_COUNT                         00000024
-MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  18:51:11         PAGE  9
+MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  19:32:24         PAGE  9
 
 
 SYMBOL TABLE
@@ -486,7 +486,7 @@ CHS2                              00000004
 CHS3                              00000005
 CIS                               00000003
 CK                                00000006
-MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  18:51:11         PAGE 10
+MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  19:32:24         PAGE 10
 
 
 SYMBOL TABLE
@@ -545,7 +545,7 @@ ECCPASE                           00000007
 EEADR                             00000FA9
 EECON1                            00000FA6
 EECON2                            00000FA7
-MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  18:51:11         PAGE 11
+MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  19:32:24         PAGE 11
 
 
 SYMBOL TABLE
@@ -604,7 +604,7 @@ INIT_OSC                          0000001A
 INIT_RGB                          0000003A
 INT0                              00000000
 INT0E                             00000004
-MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  18:51:11         PAGE 12
+MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  19:32:24         PAGE 12
 
 
 SYMBOL TABLE
@@ -663,7 +663,7 @@ LATB3                             00000003
 LATB4                             00000004
 LATB5                             00000005
 LATB6                             00000006
-MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  18:51:11         PAGE 13
+MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  19:32:24         PAGE 13
 
 
 SYMBOL TABLE
@@ -722,7 +722,7 @@ NOT_A                             00000005
 NOT_ADDRESS                       00000005
 NOT_BOR                           00000000
 NOT_CS                            00000002
-MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  18:51:11         PAGE 14
+MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  19:32:24         PAGE 14
 
 
 SYMBOL TABLE
@@ -781,7 +781,7 @@ PEIE_GIEL                         00000006
 PEN                               00000002
 PGC                               00000006
 PGD                               00000007
-MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  18:51:11         PAGE 15
+MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  19:32:24         PAGE 15
 
 
 SYMBOL TABLE
@@ -840,7 +840,7 @@ RA1                               00000001
 RA2                               00000002
 RA3                               00000003
 RA4                               00000004
-MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  18:51:11         PAGE 16
+MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  19:32:24         PAGE 16
 
 
 SYMBOL TABLE
@@ -899,7 +899,7 @@ RGB_1                             000000C2
 RGB_2                             000000BA
 RI                                00000004
 RSEN                              00000001
-MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  18:51:11         PAGE 17
+MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  19:32:24         PAGE 17
 
 
 SYMBOL TABLE
@@ -958,7 +958,7 @@ SSPOV                             00000006
 SSPSTAT                           00000FC7
 STATUS                            00000FD8
 STKFUL                            00000007
-MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  18:51:11         PAGE 18
+MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  19:32:24         PAGE 18
 
 
 SYMBOL TABLE
@@ -1017,7 +1017,7 @@ TMR0IP                            00000002
 TMR0L                             00000FD6
 TMR0ON                            00000007
 TMR1                              00000FCE
-MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  18:51:11         PAGE 19
+MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  19:32:24         PAGE 19
 
 
 SYMBOL TABLE
@@ -1076,7 +1076,7 @@ TRISC1                            00000001
 TRISC2                            00000002
 TRISC3                            00000003
 TRISC4                            00000004
-MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  18:51:11         PAGE 20
+MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  19:32:24         PAGE 20
 
 
 SYMBOL TABLE
@@ -1135,7 +1135,7 @@ WUE                               00000001
 Z                                 00000002
 _BBSIZ_BB1K_4L                    000000FF
 _BBSIZ_BB256_4L                   000000CF
-MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  18:51:11         PAGE 21
+MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  19:32:24         PAGE 21
 
 
 SYMBOL TABLE
@@ -1194,7 +1194,7 @@ _IDLOC7                           00200007
 _IESO_OFF_1H                      0000007F
 _IESO_ON_1H                       000000FF
 _LPT1OSC_OFF_3H                   000000FB
-MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  18:51:11         PAGE 22
+MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  19:32:24         PAGE 22
 
 
 SYMBOL TABLE
@@ -1253,7 +1253,7 @@ _XINST_OFF_4L                     000000BF
 _XINST_ON_4L                      000000FF
 __18F4321                         00000001
 
-MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  18:51:11         PAGE 23
+MPASM 5.86                      ASSEMBLY.ASM   6-16-2026  19:32:24         PAGE 23
 
 
 
