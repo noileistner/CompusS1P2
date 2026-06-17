@@ -18,14 +18,18 @@ MENU_ID		EQU 0x20	;Menu[2..0]
 DEBOUNCE_TIMER	EQU 0x21	;count for debouning timer
 DEBOUNCE_INNER	EQU 0x22	;used as a max counter every loop
 	
-	;LED MATRIX
-
+; LED MATRIX VARIABLES
 BYTE_BUFF	EQU 0x23	;frame byte
 BIT_COUNT	EQU 0x24	;8 - 0
 FRAME_PTR_L	EQU 0x25	;RAM pointers
 FRAME_PTR_H	EQU 0x26
 RESET_COUNT	EQU 0x27	;For counting reset time
 LED_COUNT	EQU 0x28	;64 - 0
+
+; TAMAGOTCHI CORE STAT ENGINE VARIABLES
+AGE          EQU 0x29    ; Tracks current age (0 to 100)
+HEALTH_STATE EQU 0x2A    ; 0 = Healthy (Green), 1 = Warning (Yellow), 2 = Critical (Red)
+SEC_COUNTER  EQU 0x2B    ; Increments every second to time status transitions
 	
 FRAME_BUFF	EQU 0x060	;will hold a frame in ram 
 	
@@ -61,7 +65,6 @@ DB_WAIT				    ;3c*254 + 2 = 764
     
     
     RETURN			;2c
-    
     
 ; ######################### RGB_MENU #########################
      
@@ -156,36 +159,104 @@ RGB_0
 ; ######################### LED_MATRIX #########################
 
 INIT_LM
-   ;BCF	TRISD,1,0	;already done in init_rgb
    BCF	LATD,0,0
-   
-   ; Point TBLPTR at IMAGE0 in flash
-   MOVLW   UPPER(IMAGE_0)
-   MOVWF   TBLPTRU, 0
-   MOVLW   HIGH(IMAGE_0)
-   MOVWF   TBLPTRH, 0
-   MOVLW   LOW(IMAGE_0)
-   MOVWF   TBLPTRL, 0
-   
-   CALL    LOAD_IMAGE_TO_RAM
-   
+   CLRF AGE, 0
+   CLRF HEALTH_STATE, 0
+   CLRF SEC_COUNTER, 0
+   CALL REFRESH_GAME_FRAME
    RETURN
+
+; DYNAMIC DATA GENERATOR: Combines Age shape layout + Health colors into RAM
+REFRESH_GAME_FRAME
+   ; Step 1: Assign Flash lookups according to current simulation milestones
+   MOVLW    .30
+   SUBWF    AGE, W, 0
+   BTFSS    STATUS, C, 0
+   GOTO     LOAD_BABY_PTR    ; Age 0-29
    
-LOAD_IMAGE_TO_RAM
-   MOVLW   HIGH(FRAME_BUFF)
-   MOVWF   FSR0H, 0
-   MOVLW   LOW(FRAME_BUFF)
-   MOVWF   FSR0L, 0
+   MOVLW    .60
+   SUBWF    AGE, W, 0
+   BTFSS    STATUS, C, 0
+   GOTO     LOAD_ADULT_PTR   ; Age 30-59
+   GOTO     LOAD_OLD_PTR     ; Age 60-100
+
+LOAD_BABY_PTR
+   MOVLW    UPPER(IMAGE_BABY)
+   MOVWF    TBLPTRU, 0
+   MOVLW    HIGH(IMAGE_BABY)
+   MOVWF    TBLPTRH, 0
+   MOVLW    LOW(IMAGE_BABY)
+   MOVWF    TBLPTRL, 0
+   GOTO     START_RAM_RENDER
+
+LOAD_ADULT_PTR
+   MOVLW    UPPER(IMAGE_ADULT)
+   MOVWF    TBLPTRU, 0
+   MOVLW    HIGH(IMAGE_ADULT)
+   MOVWF    TBLPTRH, 0
+   MOVLW    LOW(IMAGE_ADULT)
+   MOVWF    TBLPTRL, 0
+   GOTO     START_RAM_RENDER
+
+LOAD_OLD_PTR
+   MOVLW    UPPER(IMAGE_OLD)
+   MOVWF    TBLPTRU, 0
+   MOVLW    HIGH(IMAGE_OLD)
+   MOVWF    TBLPTRH, 0
+   MOVLW    LOW(IMAGE_OLD)
+   MOVWF    TBLPTRL, 0
+
+START_RAM_RENDER
+   MOVLW    HIGH(FRAME_BUFF)
+   MOVWF    FSR0H, 0
+   MOVLW    LOW(FRAME_BUFF)
+   MOVWF    FSR0L, 0
    
-   ;64 pixels * 3 bytes
-   MOVLW   .192
-   MOVWF   LED_COUNT, 0 
-LOAD_LOOP
-   TBLRD*+		    ;read and increment
-   MOVFF   TABLAT, POSTINC0
-   DECFSZ  LED_COUNT, 1, 0	;decrement, skip if zero
-   GOTO	   LOAD_LOOP
+   MOVLW    .64             ; 64 total individual frame blocks to evaluate
+   MOVWF    LED_COUNT, 0
+
+RENDER_LOOP
+   TBLRD*+                  ; Get structural shape instruction from table
+   MOVF     TABLAT, W, 0
+   BZ       WRITE_BLANK     ; If flash value is zero, skip mapping a color
    
+   ; Flash position is active! Map current status health color structure
+   ; Color byte payload sorting: GRB sequence
+   MOVF     HEALTH_STATE, W, 0
+   BZ       SET_COLOR_GREEN
+   DECFSZ   WREG, 1, 0
+   GOTO     SET_COLOR_RED
+
+SET_COLOR_YELLOW            ; State 1: Yellow (G=0x20, R=0x20, B=0x00)
+   MOVLW    0x20
+   MOVWF    POSTINC0, 0
+   MOVLW    0x20
+   MOVWF    POSTINC0, 0
+   CLRF     POSTINC0, 0
+   GOTO     NEXT_PIXEL
+
+SET_COLOR_GREEN             ; State 0: Green (G=0x30, R=0x00, B=0x00)
+   MOVLW    0x30
+   MOVWF    POSTINC0, 0
+   CLRF     POSTINC0, 0
+   CLRF     POSTINC0, 0
+   GOTO     NEXT_PIXEL
+
+SET_COLOR_RED               ; State 2: Red (G=0x00, R=0x30, B=0x00)
+   CLRF     POSTINC0, 0
+   MOVLW    0x30
+   MOVWF    POSTINC0, 0
+   CLRF     POSTINC0, 0
+   GOTO     NEXT_PIXEL
+
+WRITE_BLANK
+   CLRF     POSTINC0, 0    ; Fill blank space with clear GRB zeroes
+   CLRF     POSTINC0, 0
+   CLRF     POSTINC0, 0
+
+NEXT_PIXEL
+   DECFSZ   LED_COUNT, 1, 0
+   GOTO     RENDER_LOOP
    RETURN
    
 ;SEND FRAME FUNC ----------------------------
@@ -262,38 +333,17 @@ RESET_LOOP	;TODO check timing here and fix the rest of ts
     RETURN
     
 
-; TEST FUNCTION: Turns the entire 8x8 matrix Solid Green
-TEST_FULL_GRID
-    ; Total transmission bytes = 64 LEDs * 3 bytes (G, R, B) = 192 bytes
-    MOVLW   .192
-    MOVWF   LED_COUNT, 0
+; ######################### TIMER ENGINE SETUP #########################
 
-TEST_LOOP
-    ; WS2812B expects data in GRB order. 
-    ; Let's send a safe, visible mid-brightness Green: 
-    ; G = 0x20 (bit-stream), R = 0x00, B = 0x00
-    
-    ; 1st Byte: Green channel
-    MOVLW   0x20
-    MOVWF   BYTE_BUFF, 0
-    CALL    SEND_BYTE
-
-    ; 2nd Byte: Red channel
-    MOVLW   0x00
-    MOVWF   BYTE_BUFF, 0
-    CALL    SEND_BYTE
-
-    ; 3rd Byte: Blue channel
-    MOVLW   0x00
-    MOVWF   BYTE_BUFF, 0
-    CALL    SEND_BYTE
-
-    ; Loop until all 64 LEDs have received 3 color channels
-    DECFSZ  LED_COUNT, 1, 0
-    GOTO    TEST_LOOP
-
-    ; Finish transmission with a strict Reset signal so the panel latches the colors
-    CALL    SEND_RESET
+INIT_TIMER0
+    MOVLW   b'10000111'     ; Enable TMR0, 16-bit, Internal Clock, 1:256 Prescaler
+    MOVWF   T0CON, 0
+    ; Preload sequence: Write high byte first, then low byte
+    MOVLW   high(.34286)    
+    MOVWF   TMR0H, 0
+    MOVLW   low(.34286)
+    MOVWF   TMR0L, 0
+    BCF     INTCON, T0IF, 0 ; Clear overflow flag
     RETURN
 
   
@@ -304,43 +354,130 @@ MAIN
     CALL INIT_RGB
     CALL UPDATE_RGB
     CALL INIT_LM
+    CALL INIT_TIMER0
+
 LOOP
-    ;auto stuff
+    ; --- INTERRUPT POLLING ENGINE (Ticks once per second) ---
+    BTFSS   INTCON, T0IF, 0
+    GOTO    SKIP_CLOCK_TICK
     
-    ;LED routine
-    BCF	    INTCON, GIE, 0  ;disable interrupt during transmission
+    ; Corrected Preload Sequence: High byte to TMR0H first, then low byte to TMR0L
+    MOVLW   high(.34286)
+    MOVWF   TMR0H, 0
+    MOVLW   low(.34286)
+    MOVWF   TMR0L, 0
+    BCF     INTCON, T0IF, 0 ; Clear interrupt flag
+    
+    ; Process time-based events
+    INCF    SEC_COUNTER, 1, 0
+    
+    ; --- FAST FORWARD ENGINE DEBUG TESTING ---
+    ; Check Age Engine using an exclusive branch tree
+    MOVLW   .3
+    SUBWF   SEC_COUNTER, W, 0
+    BTFSC   STATUS, Z, 0
+    CALL    AGE_UP_TEN_YEARS
+
+    MOVLW   .6
+    SUBWF   SEC_COUNTER, W, 0
+    BTFSC   STATUS, Z, 0
+    CALL    AGE_UP_TEN_YEARS
+
+    MOVLW   .9
+    SUBWF   SEC_COUNTER, W, 0
+    BTFSC   STATUS, Z, 0
+    CALL    AGE_UP_TEN_YEARS
+
+CHECK_HUNGER_TICK
+    ; Check Hunger Warning Trigger (Drop status at second 5)
+    MOVLW   .5
+    SUBWF   SEC_COUNTER, W, 0
+    BTFSS   STATUS, Z, 0
+    GOTO    CHECK_CRITICAL_TICK
+    MOVLW   .1              ; State 1 = Warning (Yellow)
+    MOVWF   HEALTH_STATE, 0
+    GOTO    REFRESH_SYSTEM_VIEW
+
+CHECK_CRITICAL_TICK
+    ; Check Hunger Critical Trigger (Drop status at second 10)
+    MOVLW   .10
+    SUBWF   SEC_COUNTER, W, 0
+    BTFSS   STATUS, Z, 0
+    GOTO    REFRESH_SYSTEM_VIEW
+    
+    MOVLW   .2              ; State 2 = Critical (Red)
+    MOVWF   HEALTH_STATE, 0
+    
+    ; Complete the loop test cycle: Reset stats back to baseline
+    CLRF    SEC_COUNTER, 0  ; Reset clock loop tracking window
+    CLRF    HEALTH_STATE, 0 ; Reset Tamagotchi back to Healthy (Green) for the loop simulation
+
+REFRESH_SYSTEM_VIEW
+    CALL    REFRESH_GAME_FRAME ; Rebuild RAM matrix structure with updated states
+
+SKIP_CLOCK_TICK
+    ; Update display panel hardware
+    BCF     INTCON, GIE, 0  
     CALL    SEND_FRAME_FROM_RAM
-    BSF	    INTCON, GIE, 0
+    BSF     INTCON, GIE, 0  
     
-    ;check for action
-    CALL MENU_BUTTON_CHECK
+    ; Service background asynchronous menu requests
+    CALL    MENU_BUTTON_CHECK
     
     GOTO LOOP
+
+; --- Helper routine for aging safely ---
+AGE_UP_TEN_YEARS
+    MOVLW   .10
+    ADDWF   AGE, 1, 0
+    
+    ; Safe maximum capping check
+    MOVLW   .100
+    SUBWF   AGE, W, 0
+    BTFSC   STATUS, C, 0   ; If AGE >= 100, Carry flag sets
+    GOTO    FORCE_MAX_AGE
+    RETURN
+FORCE_MAX_AGE
+    MOVLW   .100
+    MOVWF   AGE, 0
+    RETURN
     
     
-;TABLES    
-    
-    ORG 0x0200  ;hardcoded adress for flash
-IMAGE_0
-    ; --- ROW 1 (8 Pixels * 3 Bytes = 24 Bytes) ---
-    DB  0x00,0x40,0x00,  0x00,0x40,0x00,  0x00,0x40,0x00,  0x00,0x40,0x00,  0x00,0x40,0x00,  0x00,0x40,0x00,  0x00,0x40,0x00,  0x00,0x40,0x00
-    ; --- ROW 2 (8 Pixels) ---
-    DB  0x00,0x40,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x40,0x00
-    ; --- ROW 3 (8 Pixels) ---
-    DB  0x00,0x40,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x40,0x00
-    ; --- ROW 4 (8 Pixels) ---
-    DB  0x00,0x40,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x40,0x00
-    ; --- ROW 5 (8 Pixels) ---
-    DB  0x00,0x40,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x40,0x00
-    ; --- ROW 6 (8 Pixels) ---
-    DB  0x00,0x40,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x40,0x00
-    ; --- ROW 7 (8 Pixels) ---
-    DB  0x00,0x40,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x00,0x00,  0x00,0x40,0x00
-    ; --- ROW 8 (8 Pixels) ---
-    DB  0x00,0x40,0x00,  0x00,0x40,0x00,  0x00,0x40,0x00,  0x00,0x40,0x00,  0x00,0x40,0x00,  0x00,0x40,0x00,  0x00,0x40,0x00,  0x00,0x40,0x00
-IMAGE_0_END
+; ######################### GRAPHIC TEMPLATES DATABASE #########################
+    ORG 0x0600  
+IMAGE_BABY
+    ; Simple cross-hair layout shape template marker
+    DB  0,0,0,1,1,0,0,0
+    DB  0,0,1,0,0,1,0,0
+    DB  0,1,0,0,0,0,1,0
+    DB  1,0,0,0,0,0,0,1
+    DB  1,0,0,0,0,0,0,1
+    DB  0,1,0,0,0,0,1,0
+    DB  0,0,1,0,0,1,0,0
+    DB  0,0,0,1,1,0,0,0
+
+IMAGE_ADULT
+    ; Square boundary shape template marker
+    DB  1,1,1,1,1,1,1,1
+    DB  1,0,0,0,0,0,0,1
+    DB  1,0,1,0,0,1,0,1
+    DB  1,0,0,0,0,0,0,1
+    DB  1,0,0,0,0,0,0,1
+    DB  1,0,0,0,0,0,0,1
+    DB  1,0,0,0,0,0,0,1
+    DB  1,1,1,1,1,1,1,1
+
+IMAGE_OLD
+    ; Diamond style block template marker
+    DB  0,0,0,1,1,0,0,0
+    DB  0,0,1,1,1,1,0,0
+    DB  0,1,1,0,0,1,1,0
+    DB  1,1,0,0,0,0,1,1
+    DB  1,1,0,1,1,0,1,1
+    DB  0,1,1,0,0,1,1,0
+    DB  0,0,1,1,1,1,0,0
+    DB  0,0,0,1,1,0,0,0
       
-    
     
     END
 
