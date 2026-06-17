@@ -22,10 +22,10 @@ DEBOUNCE_INNER	EQU 0x22	;used as a max counter every loop
 
 BYTE_BUFF	EQU 0x23	;frame byte
 BIT_COUNT	EQU 0x24	;8 - 0
-LED_COUNT	EQU 0x24	;64 - 0
 FRAME_PTR_L	EQU 0x25	;RAM pointers
 FRAME_PTR_H	EQU 0x26
 RESET_COUNT	EQU 0x27	;For counting reset time
+LED_COUNT	EQU 0x28	;64 - 0
 	
 FRAME_BUFF	EQU 0x060	;will hold a frame in ram 
 	
@@ -231,7 +231,10 @@ BIT_IS_ZERO
     GOTO    SEND_DONE         ; Keeps low timing uniform
 
 SEND_DONE
-    RLNCF   BYTE_BUFF, 1, 0   ; Rotate bit left for the next pass
+    NOP
+    NOP
+    NOP
+    RLNCF   BYTE_BUFF, 1, 0   ; Rotate bit left
     RETURN
    
    
