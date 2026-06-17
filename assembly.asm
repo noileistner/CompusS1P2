@@ -1,4 +1,3 @@
-; hello wassup
 LIST P=PIC18F4321	F=INHX32     
     #include <p18f4321.inc> 
     CONFIG  OSC=INTIO2; Internal oscillator @ 16MHz 
@@ -260,6 +259,40 @@ RESET_LOOP	;TODO check timing here and fix the rest of ts
     RETURN
     
 
+; TEST FUNCTION: Turns the entire 8x8 matrix Solid Green
+TEST_FULL_GRID
+    ; Total transmission bytes = 64 LEDs * 3 bytes (G, R, B) = 192 bytes
+    MOVLW   .192
+    MOVWF   LED_COUNT, 0
+
+TEST_LOOP
+    ; WS2812B expects data in GRB order. 
+    ; Let's send a safe, visible mid-brightness Green: 
+    ; G = 0x20 (bit-stream), R = 0x00, B = 0x00
+    
+    ; 1st Byte: Green channel
+    MOVLW   0x20
+    MOVWF   BYTE_BUFF, 0
+    CALL    SEND_BYTE
+
+    ; 2nd Byte: Red channel
+    MOVLW   0x00
+    MOVWF   BYTE_BUFF, 0
+    CALL    SEND_BYTE
+
+    ; 3rd Byte: Blue channel
+    MOVLW   0x00
+    MOVWF   BYTE_BUFF, 0
+    CALL    SEND_BYTE
+
+    ; Loop until all 64 LEDs have received 3 color channels
+    DECFSZ  LED_COUNT, 1, 0
+    GOTO    TEST_LOOP
+
+    ; Finish transmission with a strict Reset signal so the panel latches the colors
+    CALL    SEND_RESET
+    RETURN
+
   
 ; ######################### MAIN #########################
    
@@ -267,14 +300,14 @@ MAIN
     CALL INIT_OSC
     CALL INIT_RGB
     CALL UPDATE_RGB
-    ;CALL INIT_LM
+    CALL INIT_LM
 LOOP
     ;auto stuff
     
     ;LED routine
-    ;BCF	    INTCON, GIE, 0  ;disable interrupt during transmission
-    ;CALL    SEND_FRAME_FROM_RAM
-    ;BSF	    INTCON, GIE, 0
+    BCF	    INTCON, GIE, 0  ;disable interrupt during transmission
+    CALL    SEND_FRAME_FROM_RAM
+    BSF	    INTCON, GIE, 0
     
     ;check for action
     CALL MENU_BUTTON_CHECK
