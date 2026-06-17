@@ -372,41 +372,67 @@ LOOP
     INCF    SEC_COUNTER, 1, 0
     
     ; --- SIMULATION ENGINE ---
-    ; Step 1: Handle Evolution Status Transitions (Synchronized to specific seconds)
-    MOVLW   .3
+    
+    ; ================= STAGE 1: BABY (Seconds 0 - 9) =================
+    ; Stays Baby shape (AGE=0). Colors: 0-4 Green, 5-9 Yellow
+    MOVLW   .5
     SUBWF   SEC_COUNTER, W, 0
     BTFSC   STATUS, Z, 0
+    CALL    SET_WARNING_STATE   ; Second 5: Baby gets hungry -> Yellow
+
+    ; ================= STAGE 2: ADULT (Seconds 10 - 19) =================
+    ; Second 10: Evolves to Adult Shape & resets color to Green
+    MOVLW   .10
+    SUBWF   SEC_COUNTER, W, 0
+    BTFSS   STATUS, Z, 0
+    GOTO    CHECK_ADULT_YELLOW
     CALL    EVOLVE_TO_ADULT
+    CALL    SET_HEALTHY_STATE
+    GOTO    REFRESH_SYSTEM_VIEW
 
-    MOVLW   .6
-    SUBWF   SEC_COUNTER, W, 0
-    BTFSC   STATUS, Z, 0
-    CALL    EVOLVE_TO_OLD
-
-    ; Step 2: Handle Health State Status Transitions
-    MOVLW   .4
+CHECK_ADULT_YELLOW
+    ; Second 15: Adult gets hungry -> Yellow
+    MOVLW   .15
     SUBWF   SEC_COUNTER, W, 0
     BTFSC   STATUS, Z, 0
     CALL    SET_WARNING_STATE
 
-    MOVLW   .7
+    ; ================= STAGE 3: OLD (Seconds 20 - 30) =================
+    ; Second 20: Evolves to Old Shape & resets color to Green
+    MOVLW   .20
+    SUBWF   SEC_COUNTER, W, 0
+    BTFSS   STATUS, Z, 0
+    GOTO    CHECK_OLD_TIMERS
+    CALL    EVOLVE_TO_OLD
+    CALL    SET_HEALTHY_STATE
+    GOTO    REFRESH_SYSTEM_VIEW
+
+CHECK_OLD_TIMERS
+    ; Second 25: Old pet drops to Warning -> Yellow
+    MOVLW   .25
+    SUBWF   SEC_COUNTER, W, 0
+    BTFSC   STATUS, Z, 0
+    CALL    SET_WARNING_STATE
+
+    ; Second 28: Old pet drops to Critical -> Red
+    MOVLW   .28
     SUBWF   SEC_COUNTER, W, 0
     BTFSC   STATUS, Z, 0
     CALL    SET_CRITICAL_STATE
 
-    ; Step 3: Handle Global Reset Boundary (Reset at Second 10)
-    MOVLW   .10
+    ; ================= GLOBAL CYCLE RESET =================
+    ; At Second 30: Reset everything back to a fresh Baby
+    MOVLW   .30
     SUBWF   SEC_COUNTER, W, 0
     BTFSS   STATUS, Z, 0
     GOTO    REFRESH_SYSTEM_VIEW
     
-    ; Reset baseline variables back to clean initialization values
     CLRF    SEC_COUNTER, 0  
     CLRF    AGE, 0          ; Forces system back to Baby shape
     CLRF    HEALTH_STATE, 0 ; Forces system back to Green color
 
 REFRESH_SYSTEM_VIEW
-    CALL    REFRESH_GAME_FRAME ; Rebuild RAM matrix structure with updated states
+    CALL    REFRESH_GAME_FRAME ; Rebuild RAM matrix structure
 
 SKIP_CLOCK_TICK
     ; Update display panel hardware
@@ -419,15 +445,19 @@ SKIP_CLOCK_TICK
     
     GOTO LOOP
 
-; --- SIMULATION ROUTINES ---
+; --- SIMULATION SUBROUTINES ---
 EVOLVE_TO_ADULT
-    MOVLW   .35             ; Forces AGE value into Adult tier (30-59)
+    MOVLW   .35             ; Fits Adult bracket (30-59)
     MOVWF   AGE, 0
     RETURN
 
 EVOLVE_TO_OLD
-    MOVLW   .70             ; Forces AGE value into Old tier (60-100)
+    MOVLW   .70             ; Fits Old bracket (60-100)
     MOVWF   AGE, 0
+    RETURN
+
+SET_HEALTHY_STATE
+    CLRF    HEALTH_STATE, 0 ; State 0 = Healthy (Green)
     RETURN
 
 SET_WARNING_STATE
