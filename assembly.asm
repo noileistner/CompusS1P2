@@ -27,9 +27,10 @@ RESET_COUNT	EQU 0x27	;For counting reset time
 LED_COUNT	EQU 0x28	;64 - 0
 
 ; TAMAGOTCHI CORE STAT ENGINE VARIABLES
-AGE          EQU 0x29    ; Tracks current age (0 to 100)
-HEALTH_STATE EQU 0x2A    ; 0 = Healthy (Green), 1 = Warning (Yellow), 2 = Critical (Red)
-SEC_COUNTER  EQU 0x2B    ; Increments every second to time status transitions
+SEC_COUNTER     EQU 0x2A    ; Ticks up to 60 seconds
+AGE_COUNTER     EQU 0x2B    ; Ticks 0, 10, 20 ... up to 100 years
+SHAPE_STATE     EQU 0x2C    ; 0 = Baby [0-29], 1 = Adult [30-59], 2 = Old [60-100]
+HEALTH_STATE    EQU 0x2D    ; 0 = Green, 1 = Yellow, 2 = Red
 	
 FRAME_BUFF	EQU 0x060	;will hold a frame in ram 
 	
@@ -159,52 +160,54 @@ RGB_0
 ; ######################### LED_MATRIX #########################
 
 INIT_LM
-   BCF	LATD,0,0
-   CLRF AGE, 0
+   BCF   LATD,0,0
+   CLRF AGE_COUNTER, 0
    CLRF HEALTH_STATE, 0
    CLRF SEC_COUNTER, 0
    CALL REFRESH_GAME_FRAME
    RETURN
 
+INIT_TAMAGOTCHI
+    CLRF    SEC_COUNTER, 0
+    CLRF    AGE_COUNTER, 0
+    CLRF    SHAPE_STATE, 0
+    CLRF    HEALTH_STATE, 0
+    RETURN
+
 ; DYNAMIC DATA GENERATOR: Combines Age shape layout + Health colors into RAM
 REFRESH_GAME_FRAME
-   ; Step 1: Assign Flash lookups according to current simulation milestones
-   MOVLW    .30
-   SUBWF    AGE, W, 0
-   BTFSS    STATUS, C, 0
-   GOTO     LOAD_BABY_PTR    ; Age 0-29
-   
-   MOVLW    .60
-   SUBWF    AGE, W, 0
-   BTFSS    STATUS, C, 0
-   GOTO     LOAD_ADULT_PTR   ; Age 30-59
-   GOTO     LOAD_OLD_PTR     ; Age 60-100
+    MOVLW    .0
+    CPFSEQ   SHAPE_STATE, 0
+    BRA      TRY_ADULT_PTR
+    
+    MOVLW    UPPER(IMAGE_BABY)
+    MOVWF    TBLPTRU, 0
+    MOVLW    HIGH(IMAGE_BABY)
+    MOVWF    TBLPTRH, 0
+    MOVLW    LOW(IMAGE_BABY)
+    MOVWF    TBLPTRL, 0
+    BRA      START_RAM_RENDER
 
-LOAD_BABY_PTR
-   MOVLW    UPPER(IMAGE_BABY)
-   MOVWF    TBLPTRU, 0
-   MOVLW    HIGH(IMAGE_BABY)
-   MOVWF    TBLPTRH, 0
-   MOVLW    LOW(IMAGE_BABY)
-   MOVWF    TBLPTRL, 0
-   GOTO     START_RAM_RENDER
-
-LOAD_ADULT_PTR
-   MOVLW    UPPER(IMAGE_ADULT)
-   MOVWF    TBLPTRU, 0
-   MOVLW    HIGH(IMAGE_ADULT)
-   MOVWF    TBLPTRH, 0
-   MOVLW    LOW(IMAGE_ADULT)
-   MOVWF    TBLPTRL, 0
-   GOTO     START_RAM_RENDER
+TRY_ADULT_PTR
+    MOVLW    .1
+    CPFSEQ   SHAPE_STATE, 0
+    BRA      LOAD_OLD_PTR
+    
+    MOVLW    UPPER(IMAGE_ADULT)
+    MOVWF    TBLPTRU, 0
+    MOVLW    HIGH(IMAGE_ADULT)
+    MOVWF    TBLPTRH, 0
+    MOVLW    LOW(IMAGE_ADULT)
+    MOVWF    TBLPTRL, 0
+    BRA      START_RAM_RENDER
 
 LOAD_OLD_PTR
-   MOVLW    UPPER(IMAGE_OLD)
-   MOVWF    TBLPTRU, 0
-   MOVLW    HIGH(IMAGE_OLD)
-   MOVWF    TBLPTRH, 0
-   MOVLW    LOW(IMAGE_OLD)
-   MOVWF    TBLPTRL, 0
+    MOVLW    UPPER(IMAGE_OLD)
+    MOVWF    TBLPTRU, 0
+    MOVLW    HIGH(IMAGE_OLD)
+    MOVWF    TBLPTRH, 0
+    MOVLW    LOW(IMAGE_OLD)
+    MOVWF    TBLPTRL, 0
 
 START_RAM_RENDER
    MOVLW    HIGH(FRAME_BUFF)
@@ -346,9 +349,8 @@ INIT_TIMER0
     BCF     INTCON, T0IF, 0 ; Clear overflow flag
     RETURN
 
-  
-; ######################### MAIN #########################
-   
+
+; ######################### MAIN #########################   
 MAIN
     CALL INIT_OSC
     CALL INIT_RGB
@@ -366,67 +368,59 @@ LOOP
     MOVWF   TMR0H, 0
     MOVLW   low(.34286)
     MOVWF   TMR0L, 0
-    BCF     INTCON, T0IF, 0 ; Clear interrupt flag
+    BCF     INTCON, T0IF, 0     ; Clear interrupt flag
     
-    ; Process time-based events
-    INCF    SEC_COUNTER, 1, 0
+    ; --- 1-Second Time Accumulation ---
+    INCF    SEC_COUNTER, 1, 0   ; Ticks up every second
     
-    ; --- LINEAR SIMULATION ENGINE ---
-
-    ; --- Second 5 Milestone ---
-    MOVLW   .5
+    ; Has 60 seconds passed?
+    MOVLW   .60
     SUBWF   SEC_COUNTER, W, 0
-    BTFSC   STATUS, Z, 0
-    CALL    SET_WARNING_STATE   ; Baby turns Yellow
+    BTFSS   STATUS, Z, 0
+    GOTO    REFRESH_SYSTEM_VIEW ; Not a minute yet, bypass aging calculations
 
-    ; --- Second 10 Milestone ---
+    ; --- 60 SECONDS REACHED: AGE BY 10 YEARS ---
+    CLRF    SEC_COUNTER, 0      ; Clear out second bucket for next minute
     MOVLW   .10
-    SUBWF   SEC_COUNTER, W, 0
-    BTFSS   STATUS, Z, 0
-    GOTO    SKIP_M10
-    CALL    EVOLVE_TO_ADULT     ; Baby evolves to Adult shape
-    CALL    SET_HEALTHY_STATE   ; Color goes back to Green
-SKIP_M10
+    ADDWF   AGE_COUNTER, 1, 0   ; AGE = AGE + 10 (Preserved directly for Servo PWM)
 
-    ; --- Second 15 Milestone ---
-    MOVLW   .15
-    SUBWF   SEC_COUNTER, W, 0
+    ; --- Check for Death Milestone (100 Years) ---
+    MOVLW   .100
+    SUBWF   AGE_COUNTER, W, 0
     BTFSC   STATUS, Z, 0
-    CALL    SET_WARNING_STATE   ; Adult turns Yellow
+    GOTO    DEATH_STATE         ; Reached 100! Freeze execution immediately
 
-    ; --- Second 20 Milestone ---
-    MOVLW   .20
-    SUBWF   SEC_COUNTER, W, 0
-    BTFSS   STATUS, Z, 0
-    GOTO    SKIP_M20
-    CALL    EVOLVE_TO_OLD       ; Adult evolves to Old shape
-    CALL    SET_HEALTHY_STATE   ; Color goes back to Green
-SKIP_M20
-
-    ; --- Second 25 Milestone ---
-    MOVLW   .25
-    SUBWF   SEC_COUNTER, W, 0
-    BTFSC   STATUS, Z, 0
-    CALL    SET_WARNING_STATE   ; Old pet turns Yellow
-
-    ; --- Second 28 Milestone ---
-    MOVLW   .28
-    SUBWF   SEC_COUNTER, W, 0
-    BTFSC   STATUS, Z, 0
-    CALL    SET_CRITICAL_STATE  ; Old pet turns Red
-
-    ; --- Second 30 Milestone: Global Cycle Reset ---
+    ; --- Dynamic Shape Boundary Processing ---
+    ; Bracket 1: Baby [Age 0 to 29]
     MOVLW   .30
-    SUBWF   SEC_COUNTER, W, 0
-    BTFSS   STATUS, Z, 0
-    GOTO    REFRESH_SYSTEM_VIEW ; If not 30, go render normally
+    SUBWF   AGE_COUNTER, W, 0
+    BTFSC   STATUS, C, 0        ; Is AGE >= 30?
+    GOTO    CHECK_OLD_BRACKET   ; Yes, move to next check
     
-    CLRF    SEC_COUNTER, 0  
-    CLRF    AGE, 0          ; Forces system back to Baby shape
-    CLRF    HEALTH_STATE, 0 ; Forces system back to Green color
+    ; No, it's < 30 (Baby) -> Set state explicitly to 0
+    MOVLW   .0
+    MOVWF   SHAPE_STATE, 0
+    GOTO    REFRESH_SYSTEM_VIEW 
+
+CHECK_OLD_BRACKET
+    ; Bracket 2: Adult vs Old Boundary [Age 30 to 59 vs 60+]
+    MOVLW   .60
+    SUBWF   AGE_COUNTER, W, 0
+    BTFSC   STATUS, C, 0        ; Is AGE >= 60?
+    GOTO    SET_OLD_STATE       ; Yes, it's Old.
+    
+    ; No, it's Adult -> Set state explicitly to 1
+    MOVLW   .1
+    MOVWF   SHAPE_STATE, 0
+    GOTO    REFRESH_SYSTEM_VIEW
+
+SET_OLD_STATE
+    ; Yes, it's Old -> Set state explicitly to 2
+    MOVLW   .2
+    MOVWF   SHAPE_STATE, 0
 
 REFRESH_SYSTEM_VIEW
-    CALL    REFRESH_GAME_FRAME ; Rebuild RAM matrix structure
+    CALL    REFRESH_GAME_FRAME  ; Rebuild structural shape layout in RAM matching SHAPE_STATE
 
 SKIP_CLOCK_TICK
     ; Update display panel hardware
@@ -439,30 +433,11 @@ SKIP_CLOCK_TICK
     
     GOTO LOOP
 
-; --- SIMULATION SUBROUTINES ---
-EVOLVE_TO_ADULT
-    MOVLW   .35             ; Fits Adult bracket (30-59)
-    MOVWF   AGE, 0
-    RETURN
-
-EVOLVE_TO_OLD
-    MOVLW   .70             ; Fits Old bracket (60-100)
-    MOVWF   AGE, 0
-    RETURN
-
-SET_HEALTHY_STATE
-    CLRF    HEALTH_STATE, 0 ; State 0 = Healthy (Green)
-    RETURN
-
-SET_WARNING_STATE
-    MOVLW   .1              ; State 1 = Warning (Yellow)
-    MOVWF   HEALTH_STATE, 0
-    RETURN
-
-SET_CRITICAL_STATE
-    MOVLW   .2              ; State 2 = Critical (Red)
-    MOVWF   HEALTH_STATE, 0
-    RETURN
+; ######################### PERMANENT DEATH TRAP #########################
+DEATH_STATE
+    ; System halts completely. It stops refreshing game frames or tracking buttons.
+    ; Safe infinite trap block waiting for a hardware Master Clear (MCLR) reset button pull.
+    GOTO    DEATH_STATE
     
     
 ; ######################### GRAPHIC TEMPLATES DATABASE #########################
