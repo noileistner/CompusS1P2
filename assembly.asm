@@ -371,61 +371,55 @@ LOOP
     ; Process time-based events
     INCF    SEC_COUNTER, 1, 0
     
-    ; --- SIMULATION ENGINE ---
-    
-    ; ================= STAGE 1: BABY (Seconds 0 - 9) =================
-    ; Stays Baby shape (AGE=0). Colors: 0-4 Green, 5-9 Yellow
+    ; --- LINEAR SIMULATION ENGINE ---
+
+    ; --- Second 5 Milestone ---
     MOVLW   .5
     SUBWF   SEC_COUNTER, W, 0
     BTFSC   STATUS, Z, 0
-    CALL    SET_WARNING_STATE   ; Second 5: Baby gets hungry -> Yellow
+    CALL    SET_WARNING_STATE   ; Baby turns Yellow
 
-    ; ================= STAGE 2: ADULT (Seconds 10 - 19) =================
-    ; Second 10: Evolves to Adult Shape & resets color to Green
+    ; --- Second 10 Milestone ---
     MOVLW   .10
     SUBWF   SEC_COUNTER, W, 0
     BTFSS   STATUS, Z, 0
-    GOTO    CHECK_ADULT_YELLOW
-    CALL    EVOLVE_TO_ADULT
-    CALL    SET_HEALTHY_STATE
-    GOTO    REFRESH_SYSTEM_VIEW
+    GOTO    SKIP_M10
+    CALL    EVOLVE_TO_ADULT     ; Baby evolves to Adult shape
+    CALL    SET_HEALTHY_STATE   ; Color goes back to Green
+SKIP_M10
 
-CHECK_ADULT_YELLOW
-    ; Second 15: Adult gets hungry -> Yellow
+    ; --- Second 15 Milestone ---
     MOVLW   .15
     SUBWF   SEC_COUNTER, W, 0
     BTFSC   STATUS, Z, 0
-    CALL    SET_WARNING_STATE
+    CALL    SET_WARNING_STATE   ; Adult turns Yellow
 
-    ; ================= STAGE 3: OLD (Seconds 20 - 30) =================
-    ; Second 20: Evolves to Old Shape & resets color to Green
+    ; --- Second 20 Milestone ---
     MOVLW   .20
     SUBWF   SEC_COUNTER, W, 0
     BTFSS   STATUS, Z, 0
-    GOTO    CHECK_OLD_TIMERS
-    CALL    EVOLVE_TO_OLD
-    CALL    SET_HEALTHY_STATE
-    GOTO    REFRESH_SYSTEM_VIEW
+    GOTO    SKIP_M20
+    CALL    EVOLVE_TO_OLD       ; Adult evolves to Old shape
+    CALL    SET_HEALTHY_STATE   ; Color goes back to Green
+SKIP_M20
 
-CHECK_OLD_TIMERS
-    ; Second 25: Old pet drops to Warning -> Yellow
+    ; --- Second 25 Milestone ---
     MOVLW   .25
     SUBWF   SEC_COUNTER, W, 0
     BTFSC   STATUS, Z, 0
-    CALL    SET_WARNING_STATE
+    CALL    SET_WARNING_STATE   ; Old pet turns Yellow
 
-    ; Second 28: Old pet drops to Critical -> Red
+    ; --- Second 28 Milestone ---
     MOVLW   .28
     SUBWF   SEC_COUNTER, W, 0
     BTFSC   STATUS, Z, 0
-    CALL    SET_CRITICAL_STATE
+    CALL    SET_CRITICAL_STATE  ; Old pet turns Red
 
-    ; ================= GLOBAL CYCLE RESET =================
-    ; At Second 30: Reset everything back to a fresh Baby
+    ; --- Second 30 Milestone: Global Cycle Reset ---
     MOVLW   .30
     SUBWF   SEC_COUNTER, W, 0
     BTFSS   STATUS, Z, 0
-    GOTO    REFRESH_SYSTEM_VIEW
+    GOTO    REFRESH_SYSTEM_VIEW ; If not 30, go render normally
     
     CLRF    SEC_COUNTER, 0  
     CLRF    AGE, 0          ; Forces system back to Baby shape
