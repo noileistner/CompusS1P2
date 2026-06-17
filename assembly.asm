@@ -34,6 +34,9 @@ HEALTH_STATE    EQU 0x2D    ; 0 = Green, 1 = Yellow, 2 = Red
 	
 FRAME_BUFF	EQU 0x060	;will hold a frame in ram 
 	
+SERVO_PIN       EQU 1       ; RD1 will be our Servo signal output pin
+SERVO_ON_TIME   EQU 0x2E    ; Dynamic high pulse count variable
+
 ;######################### BASE_CODE #########################
 
 INIT_OSC   ; Configure the microcontroller @ 32MHz w/ internal oscillator 
@@ -170,6 +173,11 @@ INIT_TAMAGOTCHI
     CLRF    AGE_COUNTER, 0
     CLRF    SHAPE_STATE, 0
     CLRF    HEALTH_STATE, 0
+    RETURN
+
+INIT_SERVO
+    BCF     TRISD, SERVO_PIN, 0  ; Set RC0 as an output
+    BCF     LATD, SERVO_PIN, 0   ; Initialize line LOW
     RETURN
 
 ; DYNAMIC DATA GENERATOR: Combines Age shape layout + Health colors into RAM
@@ -348,6 +356,37 @@ INIT_TIMER0
     RETURN
 
 
+; ######################### SERVO ENGINE #########################
+REFRESH_SERVO_POSITION
+    ; --- Step 1: Calculate Dynamic High Pulse Duration ---
+    MOVF    AGE_COUNTER, W, 0
+    MULLW   .10                 
+    
+    MOVLW   0xE8
+    ADDWF   PRODL, W, 0         
+    MOVWF   SERVO_ON_TIME, 0    
+    
+    MOVLW   0x03
+    ADDWFC  PRODH, W, 0         
+    MOVWF   FRAME_PTR_H, 0      
+
+    ; --- Step 2: Physical Signal Generation ---
+    BSF     LATD, SERVO_PIN, 0  ; [SERVO PIN GOES HIGH on LATD]
+
+SERVO_LOOP                      
+    NOP                         
+    NOP                         
+    NOP                         
+    NOP                         
+    DECFSZ  SERVO_ON_TIME, 1, 0 
+    GOTO    SERVO_LOOP          
+    
+    DECFSZ  FRAME_PTR_H, 1, 0   
+    GOTO    SERVO_LOOP          
+
+    BCF     LATD, SERVO_PIN, 0  ; [SERVO PIN GOES LOW on LATD]
+    RETURN
+
 ; ######################### MAIN #########################   
 MAIN
     CALL INIT_OSC
@@ -355,6 +394,7 @@ MAIN
     CALL UPDATE_RGB
     CALL INIT_LM
     CALL INIT_TIMER0
+    CALL INIT_SERVO
 
 LOOP
     ; --- INTERRUPT POLLING ENGINE (Ticks once per second) ---
@@ -418,6 +458,7 @@ SET_OLD_STATE
     MOVWF   SHAPE_STATE, 0
 
 REFRESH_SYSTEM_VIEW
+    CALL    REFRESH_SERVO_POSITION
     CALL    REFRESH_GAME_FRAME  ; Rebuild structural shape layout in RAM matching SHAPE_STATE
 
 SKIP_CLOCK_TICK
