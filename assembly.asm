@@ -361,7 +361,7 @@ LOOP
     BTFSS   INTCON, T0IF, 0
     GOTO    SKIP_CLOCK_TICK
     
-    ; Corrected Preload Sequence: High byte to TMR0H first, then low byte to TMR0L
+    ; Corrected Preload Sequence
     MOVLW   high(.34286)
     MOVWF   TMR0H, 0
     MOVLW   low(.34286)
@@ -371,46 +371,39 @@ LOOP
     ; Process time-based events
     INCF    SEC_COUNTER, 1, 0
     
-    ; --- FAST FORWARD ENGINE DEBUG TESTING ---
-    ; Check Age Engine using an exclusive branch tree
+    ; --- SIMULATION ENGINE ---
+    ; Step 1: Handle Evolution Status Transitions (Synchronized to specific seconds)
     MOVLW   .3
     SUBWF   SEC_COUNTER, W, 0
     BTFSC   STATUS, Z, 0
-    CALL    AGE_UP_TEN_YEARS
+    CALL    EVOLVE_TO_ADULT
 
     MOVLW   .6
     SUBWF   SEC_COUNTER, W, 0
     BTFSC   STATUS, Z, 0
-    CALL    AGE_UP_TEN_YEARS
+    CALL    EVOLVE_TO_OLD
 
-    MOVLW   .9
+    ; Step 2: Handle Health State Status Transitions
+    MOVLW   .4
     SUBWF   SEC_COUNTER, W, 0
     BTFSC   STATUS, Z, 0
-    CALL    AGE_UP_TEN_YEARS
+    CALL    SET_WARNING_STATE
 
-CHECK_HUNGER_TICK
-    ; Check Hunger Warning Trigger (Drop status at second 5)
-    MOVLW   .5
+    MOVLW   .7
     SUBWF   SEC_COUNTER, W, 0
-    BTFSS   STATUS, Z, 0
-    GOTO    CHECK_CRITICAL_TICK
-    MOVLW   .1              ; State 1 = Warning (Yellow)
-    MOVWF   HEALTH_STATE, 0
-    GOTO    REFRESH_SYSTEM_VIEW
+    BTFSC   STATUS, Z, 0
+    CALL    SET_CRITICAL_STATE
 
-CHECK_CRITICAL_TICK
-    ; Check Hunger Critical Trigger (Drop status at second 10)
+    ; Step 3: Handle Global Reset Boundary (Reset at Second 10)
     MOVLW   .10
     SUBWF   SEC_COUNTER, W, 0
     BTFSS   STATUS, Z, 0
     GOTO    REFRESH_SYSTEM_VIEW
     
-    MOVLW   .2              ; State 2 = Critical (Red)
-    MOVWF   HEALTH_STATE, 0
-    
-    ; Complete the loop test cycle: Reset stats back to baseline
-    CLRF    SEC_COUNTER, 0  ; Reset clock loop tracking window
-    CLRF    HEALTH_STATE, 0 ; Reset Tamagotchi back to Healthy (Green) for the loop simulation
+    ; Reset baseline variables back to clean initialization values
+    CLRF    SEC_COUNTER, 0  
+    CLRF    AGE, 0          ; Forces system back to Baby shape
+    CLRF    HEALTH_STATE, 0 ; Forces system back to Green color
 
 REFRESH_SYSTEM_VIEW
     CALL    REFRESH_GAME_FRAME ; Rebuild RAM matrix structure with updated states
@@ -426,20 +419,25 @@ SKIP_CLOCK_TICK
     
     GOTO LOOP
 
-; --- Helper routine for aging safely ---
-AGE_UP_TEN_YEARS
-    MOVLW   .10
-    ADDWF   AGE, 1, 0
-    
-    ; Safe maximum capping check
-    MOVLW   .100
-    SUBWF   AGE, W, 0
-    BTFSC   STATUS, C, 0   ; If AGE >= 100, Carry flag sets
-    GOTO    FORCE_MAX_AGE
-    RETURN
-FORCE_MAX_AGE
-    MOVLW   .100
+; --- SIMULATION ROUTINES ---
+EVOLVE_TO_ADULT
+    MOVLW   .35             ; Forces AGE value into Adult tier (30-59)
     MOVWF   AGE, 0
+    RETURN
+
+EVOLVE_TO_OLD
+    MOVLW   .70             ; Forces AGE value into Old tier (60-100)
+    MOVWF   AGE, 0
+    RETURN
+
+SET_WARNING_STATE
+    MOVLW   .1              ; State 1 = Warning (Yellow)
+    MOVWF   HEALTH_STATE, 0
+    RETURN
+
+SET_CRITICAL_STATE
+    MOVLW   .2              ; State 2 = Critical (Red)
+    MOVWF   HEALTH_STATE, 0
     RETURN
     
     
