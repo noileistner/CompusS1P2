@@ -209,40 +209,31 @@ SEND_LOOP
    
 ;BIT FUNC -----------------------------   
 SEND_BIT
-   BSF	   LATD, 0, 0	    ;begin high	 1
-   BTFSS   BYTE_BUFF, 7, 0 ;check MSB   1
-   GOTO SEND_ZERO			;1
-   
-   ;1c = 125
-   ;total = 650-1850ns
-   ;bit = 1, high 800ns = 6.4, low 450ns = 3.6
-   ; 6 + 4 = 10
-   ;so far 3
-   NOP
-   NOP
-   NOP
-   NOP
-   BCF	   LATD,0,0
-   NOP
-   NOP
-   GOTO SEND_DONE
-   
-SEND_ZERO
-   ;bit = 0, high 400ns = 3.2, low 850ns = 6.8
-   ; 3 + 7 = 10
-   ;so far 2 (goto)
-   NOP
-   BCF	    LATD,0,0
-   NOP
-   NOP
-   NOP
-   NOP
-   NOP
-   GOTO SEND_DONE
-   
+    ; Step 1: Pre-check the bit BEFORE turning the pin high
+    BTFSC   BYTE_BUFF, 7, 0   ; Check if MSB is 0 (Skip if 1)
+    GOTO    BIT_IS_ZERO       ; If 0, jump to the zero-handler
+
+    ; --- BIT 1 PATH --- (Target: 6-7 cycles high)
+    BSF     LATD, 0, 0        ; [Pin goes HIGH] (Cycle 0)
+    NOP                       ; Cycle 1
+    NOP                       ; Cycle 2
+    NOP                       ; Cycle 3
+    NOP                       ; Cycle 4
+    NOP                       ; Cycle 5
+    BCF     LATD, 0, 0        ; [Pin goes LOW] (Cycle 6) -> 6 * 125ns = 750ns
+    GOTO    SEND_DONE
+
+BIT_IS_ZERO
+    ; --- BIT 0 PATH --- (Target: 3 cycles high)
+    BSF     LATD, 0, 0        ; [Pin goes HIGH] (Cycle 0)
+    NOP                       ; Cycle 1
+    NOP                       ; Cycle 2
+    BCF     LATD, 0, 0        ; [Pin goes LOW] (Cycle 3) -> 3 * 125ns = 375ns
+    GOTO    SEND_DONE         ; Keeps low timing uniform
+
 SEND_DONE
-   RLNCF    BYTE_BUFF,1,0   ;rotate bit left (nc = no carry)
-   RETURN
+    RLNCF   BYTE_BUFF, 1, 0   ; Rotate bit left for the next pass
+    RETURN
    
    
 ;BYTE FUNC -----------------------------   
