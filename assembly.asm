@@ -277,29 +277,29 @@ SEND_LOOP
    CALL	    SEND_RESET
    RETURN
    
-;BIT FUNC -----------------------------   
+; ######################### BIT FUNC #########################  
 SEND_BIT
     ; Step 1: Pre-check the bit BEFORE turning the pin high
-    BTFSC   BYTE_BUFF, 7, 0   ; Check if MSB is 0 (Skip if 1)
+    BTFSS   BYTE_BUFF, 7, 0   ; Check if MSB is 1 (Skip if 1)
     GOTO    BIT_IS_ZERO       ; If 0, jump to the zero-handler
 
     ; --- BIT 1 PATH --- (Target: 6-7 cycles high)
-    BSF     LATD, 0, 0        ; [Pin goes HIGH] (Cycle 0)
-    NOP                       ; Cycle 1
-    NOP                       ; Cycle 2
-    NOP                       ; Cycle 3
-    NOP                       ; Cycle 4
-    NOP                       ; Cycle 5
-    BCF     LATD, 0, 0        ; [Pin goes LOW] (Cycle 6) -> 6 * 125ns = 750ns
+    BSF     LATD, 0, 0        ; [Pin goes HIGH]
+    NOP                       
+    NOP                       
+    NOP                       
+    NOP                       
+    NOP                       
+    BCF     LATD, 0, 0        ; [Pin goes LOW]
     GOTO    SEND_DONE
 
 BIT_IS_ZERO
     ; --- BIT 0 PATH --- (Target: 3 cycles high)
-    BSF     LATD, 0, 0        ; [Pin goes HIGH] (Cycle 0)
-    NOP                       ; Cycle 1
-    NOP                       ; Cycle 2
-    BCF     LATD, 0, 0        ; [Pin goes LOW] (Cycle 3) -> 3 * 125ns = 375ns
-    GOTO    SEND_DONE         ; Keeps low timing uniform
+    BSF     LATD, 0, 0        ; [Pin goes HIGH]
+    NOP                       
+    NOP                       
+    BCF     LATD, 0, 0        ; [Pin goes LOW]
+    GOTO    SEND_DONE         
 
 SEND_DONE
     NOP
