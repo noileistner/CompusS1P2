@@ -374,13 +374,13 @@ INIT_TIMER0
 ;     touch the pin. ---
 RECALC_SERVO_TARGET
     MOVF    AGE_COUNTER, W, 0
-    MULLW   .10                 
+    MULLW   .11             
 
-    MOVLW   0xE8
+    MOVLW   LOW(.1143)
     ADDWF   PRODL, W, 0         
     MOVWF   SERVO_TARGET_L, 0    
     
-    MOVLW   0x03
+    MOVLW   HIGH(.1143)
     ADDWFC  PRODH, W, 0         
     MOVWF   SERVO_TARGET_H, 0      
     RETURN
@@ -465,7 +465,7 @@ LOOP
     ; --- Check for Death Milestone (100 Years) ---
     MOVLW   .100
     SUBWF   AGE_COUNTER, W, 0
-    BTFFC   STATUS, Z, 0        ; Changed to BTFFC to catch the transition before trapping
+    BTFSC   STATUS, Z, 0        ; Changed to BTFFC to catch the transition before trapping
     GOTO    DEATH_STATE         ; Reached 100! Freeze execution immediately
 
     ; --- Dynamic Shape Boundary Processing ---
