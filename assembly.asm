@@ -374,7 +374,7 @@ INIT_TIMER0
 ;     touch the pin. ---
 RECALC_SERVO_TARGET
     MOVF    AGE_COUNTER, W, 0
-    MULLW   .11             
+    MULLW   .12             
 
     MOVLW   LOW(.1143)
     ADDWF   PRODL, W, 0         
