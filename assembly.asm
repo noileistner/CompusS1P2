@@ -395,6 +395,7 @@ MAIN
     CALL INIT_LM
     CALL INIT_TIMER0
     CALL INIT_SERVO
+    CALL REFRESH_SERVO_POSITION ; Set initial 0-degree baseline position at startup
 
 LOOP
     ; --- INTERRUPT POLLING ENGINE (Ticks once per second) ---
@@ -415,17 +416,20 @@ LOOP
     MOVLW   .60
     SUBWF   SEC_COUNTER, W, 0
     BTFSS   STATUS, Z, 0
-    GOTO    REFRESH_SYSTEM_VIEW ; Not a minute yet, bypass aging calculations
+    GOTO    REFRESH_SYSTEM_VIEW ; Not a minute yet, bypass aging AND servo calculations
 
     ; --- 60 SECONDS REACHED: AGE BY 10 YEARS ---
     CLRF    SEC_COUNTER, 0      ; Clear out second bucket for next minute
     MOVLW   .10
-    ADDWF   AGE_COUNTER, 1, 0   ; AGE = AGE + 10 (Preserved directly for Servo PWM)
+    ADDWF   AGE_COUNTER, 1, 0   ; AGE = AGE + 10
+    
+    ; --- MOVE THE SERVO HERE (Only fires once per minute!) ---
+    CALL    REFRESH_SERVO_POSITION
 
     ; --- Check for Death Milestone (100 Years) ---
     MOVLW   .100
     SUBWF   AGE_COUNTER, W, 0
-    BTFSC   STATUS, Z, 0
+    BTFFC   STATUS, Z, 0        ; Changed to BTFFC to catch the transition before trapping
     GOTO    DEATH_STATE         ; Reached 100! Freeze execution immediately
 
     ; --- Dynamic Shape Boundary Processing ---
@@ -458,7 +462,7 @@ SET_OLD_STATE
     MOVWF   SHAPE_STATE, 0
 
 REFRESH_SYSTEM_VIEW
-    CALL    REFRESH_SERVO_POSITION
+    ; CALL REFRESH_SERVO_POSITION <--- REMOVED FROM HERE
     CALL    REFRESH_GAME_FRAME  ; Rebuild structural shape layout in RAM matching SHAPE_STATE
 
 SKIP_CLOCK_TICK
