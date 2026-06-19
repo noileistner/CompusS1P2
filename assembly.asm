@@ -35,7 +35,17 @@ HEALTH_STATE    EQU 0x2D    ; 0 = Green, 1 = Yellow, 2 = Red
 FRAME_BUFF	EQU 0x060	;will hold a frame in ram 
 	
 SERVO_PIN       EQU 1       ; RD1 will be our Servo signal output pin
-SERVO_ON_TIME   EQU 0x2E    ; Dynamic high pulse count variable
+
+; --- Servo pulse-width target, latched once a minute, consumed every loop ---
+SERVO_TARGET_L  EQU 0x2E    ; low byte of target HIGH-time count
+SERVO_TARGET_H  EQU 0x2F    ; high byte of target HIGH-time count
+
+; --- Scratch counters used DURING pulse generation (every loop pass) ---
+SERVO_ON_TIME   EQU 0x30    ; working low counter
+SERVO_ON_TIME_H EQU 0x31    ; working high counter
+
+; --- 20ms frame-spacing counter (so we don't re-pulse faster than ~50Hz) ---
+SERVO_FRAME_CNT EQU 0x32
 
 ;######################### BASE_CODE #########################
 
@@ -176,8 +186,9 @@ INIT_TAMAGOTCHI
     RETURN
 
 INIT_SERVO
-    BCF     TRISD, SERVO_PIN, 0  ; Set RC0 as an output
+    BCF     TRISD, SERVO_PIN, 0  ; Set RD1 as an output
     BCF     LATD, SERVO_PIN, 0   ; Initialize line LOW
+    CLRF    SERVO_FRAME_CNT, 0
     RETURN
 
 ; DYNAMIC DATA GENERATOR: Combines Age shape layout + Health colors into RAM
@@ -357,34 +368,59 @@ INIT_TIMER0
 
 
 ; ######################### SERVO ENGINE #########################
-REFRESH_SERVO_POSITION
-    ; --- Step 1: Calculate Dynamic High Pulse Duration ---
+
+; --- Called ONCE PER MINUTE: recompute the target pulse-width for the
+;     current AGE_COUNTER and latch it into SERVO_TARGET_H/L. Does NOT
+;     touch the pin. ---
+RECALC_SERVO_TARGET
     MOVF    AGE_COUNTER, W, 0
     MULLW   .10                 
-    
+
     MOVLW   0xE8
     ADDWF   PRODL, W, 0         
-    MOVWF   SERVO_ON_TIME, 0    
+    MOVWF   SERVO_TARGET_L, 0    
     
     MOVLW   0x03
     ADDWFC  PRODH, W, 0         
-    MOVWF   FRAME_PTR_H, 0      
+    MOVWF   SERVO_TARGET_H, 0      
+    RETURN
 
-    ; --- Step 2: Physical Signal Generation ---
-    BSF     LATD, SERVO_PIN, 0  ; [SERVO PIN GOES HIGH on LATD]
+; --- Called EVERY pass of the main LOOP: generates exactly one HIGH
+;     pulse using whatever target is currently latched, then waits out
+;     the rest of a ~20ms frame so the servo sees a proper ~50Hz train. ---
+REFRESH_SERVO_PULSE
+    ; copy latched target into working counters (so RECALC can change
+    ; the target mid-pulse-train without corrupting an in-flight pulse)
+    MOVFF   SERVO_TARGET_L, SERVO_ON_TIME
+    MOVFF   SERVO_TARGET_H, SERVO_ON_TIME_H
 
-SERVO_LOOP                      
+    BSF     LATD, SERVO_PIN, 0  ; [SERVO PIN GOES HIGH]
+
+SERVO_PULSE_LOOP                      
     NOP                         
     NOP                         
     NOP                         
     NOP                         
     DECFSZ  SERVO_ON_TIME, 1, 0 
-    GOTO    SERVO_LOOP          
+    GOTO    SERVO_PULSE_LOOP          
     
-    DECFSZ  FRAME_PTR_H, 1, 0   
-    GOTO    SERVO_LOOP          
+    DECFSZ  SERVO_ON_TIME_H, 1, 0   
+    GOTO    SERVO_PULSE_LOOP          
 
-    BCF     LATD, SERVO_PIN, 0  ; [SERVO PIN GOES LOW on LATD]
+    BCF     LATD, SERVO_PIN, 0  ; [SERVO PIN GOES LOW]
+
+    ; --- Idle out the rest of the ~20ms frame period ---
+    ; (rough delay; tune SERVO_FRAME_CNT preload to match actual loop
+    ;  overhead from SEND_FRAME_FROM_RAM + MENU_BUTTON_CHECK so total
+    ;  period per LOOP pass is close to 20ms)
+    MOVLW   .120
+    MOVWF   SERVO_FRAME_CNT, 0
+SERVO_FRAME_WAIT
+    NOP
+    NOP
+    DECFSZ  SERVO_FRAME_CNT, 1, 0
+    GOTO    SERVO_FRAME_WAIT
+
     RETURN
 
 ; ######################### MAIN #########################   
@@ -395,7 +431,7 @@ MAIN
     CALL INIT_LM
     CALL INIT_TIMER0
     CALL INIT_SERVO
-    CALL REFRESH_SERVO_POSITION ; Set initial 0-degree baseline position at startup
+    CALL RECALC_SERVO_TARGET    ; Set initial 0-degree baseline target at startup
 
 LOOP
     ; --- INTERRUPT POLLING ENGINE (Ticks once per second) ---
@@ -416,15 +452,15 @@ LOOP
     MOVLW   .60
     SUBWF   SEC_COUNTER, W, 0
     BTFSS   STATUS, Z, 0
-    GOTO    REFRESH_SYSTEM_VIEW ; Not a minute yet, bypass aging AND servo calculations
+    GOTO    REFRESH_SYSTEM_VIEW ; Not a minute yet, bypass aging AND target recalc
 
     ; --- 60 SECONDS REACHED: AGE BY 10 YEARS ---
     CLRF    SEC_COUNTER, 0      ; Clear out second bucket for next minute
     MOVLW   .10
     ADDWF   AGE_COUNTER, 1, 0   ; AGE = AGE + 10
     
-    ; --- MOVE THE SERVO HERE (Only fires once per minute!) ---
-    CALL    REFRESH_SERVO_POSITION
+    ; --- Recalculate servo TARGET only (does not pulse the pin) ---
+    CALL    RECALC_SERVO_TARGET
 
     ; --- Check for Death Milestone (100 Years) ---
     MOVLW   .100
@@ -462,10 +498,12 @@ SET_OLD_STATE
     MOVWF   SHAPE_STATE, 0
 
 REFRESH_SYSTEM_VIEW
-    ; CALL REFRESH_SERVO_POSITION <--- REMOVED FROM HERE
     CALL    REFRESH_GAME_FRAME  ; Rebuild structural shape layout in RAM matching SHAPE_STATE
 
 SKIP_CLOCK_TICK
+    ; --- Generate ONE servo pulse every pass, using current target ---
+    CALL    REFRESH_SERVO_PULSE
+
     ; Update display panel hardware
     BCF     INTCON, GIE, 0  
     CALL    SEND_FRAME_FROM_RAM
@@ -520,5 +558,3 @@ IMAGE_OLD
       
     
     END
-
-
