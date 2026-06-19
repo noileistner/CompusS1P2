@@ -101,7 +101,7 @@ INIT_RGB
    RETURN 
 
 INIT_PLAY_GAME
-    MOVLW   b'11110000'     ; RA3:0 = outputs (0), RA7:4 = leave as-is/inputs (1)
+    MOVLW   b'11100000'     ; RA3:0 = outputs (0), RA7:4 = leave as-is/inputs (1)
     MOVWF   TRISA, 0
 
     MOVLW   0xA5            ; arbitrary non-zero seed (LFSR must never be 0)
@@ -182,9 +182,11 @@ START_PLAY_GAME
    MOVWF    RANDOM_NUM, 0
 
    MOVF     PORTA, W, 0
-   ANDLW    b'11110000'        ; preserve RA7:4, clear RA3:0
+   ANDLW    b'11100000'        ; preserve RA7:4, clear RA3:0
    IORWF    RANDOM_NUM, W, 0   ; merge in new 4-bit number
    MOVWF    LATA, 0            ; drive RA3:0 with the random number
+
+   BSF      LATA, 4, 0
 
    RETURN
 
