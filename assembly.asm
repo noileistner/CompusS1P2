@@ -47,6 +47,11 @@ SERVO_ON_TIME_H EQU 0x31    ; working high counter
 ; --- 20ms frame-spacing counter (so we don't re-pulse faster than ~50Hz) ---
 SERVO_FRAME_CNT EQU 0x32
 
+; --- PLAY GAME / RANDOM NUMBER VARIABLES ---
+PLAY_MENU_ID    EQU 0x00    ; ASSUMPTION: MENU_ID value that represents "Play" - adjust if wrong
+RNG_SEED        EQU 0x35    ; running LFSR state
+RANDOM_NUM      EQU 0x36    ; latest generated 4-bit number (0-15)
+
 ;######################### BASE_CODE #########################
 
 INIT_OSC   ; Configure the microcontroller @ 32MHz w/ internal oscillator 
@@ -94,6 +99,14 @@ INIT_RGB
    CLRF MENU_ID, 0
    
    RETURN 
+
+INIT_PLAY_GAME
+    MOVLW   b'11110000'     ; RA3:0 = outputs (0), RA7:4 = leave as-is/inputs (1)
+    MOVWF   TRISA, 0
+
+    MOVLW   0xA5            ; arbitrary non-zero seed (LFSR must never be 0)
+    MOVWF   RNG_SEED, 0
+    RETURN
    
  
 MENU_BUTTON_CHECK
@@ -101,8 +114,8 @@ MENU_BUTTON_CHECK
    CALL	MENU_LEFT
    BTFSS PORTB, 1, 0
    CALL	MENU_RIGHT
-   BTFSS PORTB, 2, 0
-   NOP
+   BTFSS PORTB, 3, 0    ; SELECT button (was a NOP placeholder before)
+   CALL SELECT_PRESS
 
    RETURN
    
@@ -144,6 +157,50 @@ LOOP_R
    CALL WAIT_DEBOUNCE
    RETURN
  
+ SELECT_PRESS
+   CALL WAIT_DEBOUNCE
+
+   MOVLW    PLAY_MENU_ID
+   SUBWF    MENU_ID, W, 0
+   BTFSS    STATUS, Z, 0       ; skip (proceed) if MENU_ID == PLAY_MENU_ID
+   GOTO     SELECT_DONE        ; not on Play option, ignore for now
+
+   CALL     START_PLAY_GAME
+
+SELECT_DONE
+LOOP_SEL
+   BTFSS    PORTB, 3, 0
+   GOTO     LOOP_SEL           ; wait for button release
+   CALL     WAIT_DEBOUNCE
+   RETURN
+
+
+START_PLAY_GAME
+   CALL     UPDATE_RNG
+   MOVF     RNG_SEED, W, 0
+   ANDLW    0x0F               ; mask to 4 bits -> 0-15
+   MOVWF    RANDOM_NUM, 0
+
+   MOVF     PORTA, W, 0
+   ANDLW    b'11110000'        ; preserve RA7:4, clear RA3:0
+   IORWF    RANDOM_NUM, W, 0   ; merge in new 4-bit number
+   MOVWF    LATA, 0            ; drive RA3:0 with the random number
+
+   RETURN
+
+; Updates RNG_SEED using an 8-bit LFSR (taps at bits 7,5,4,3 -> feedback into bit 0)
+; Mixes in TMR0L each call so timing jitter from button-press timing affects the result.
+UPDATE_RNG
+    MOVF    TMR0L, W, 0
+    XORWF   RNG_SEED, 1, 0   ; mix in free-running timer noise
+
+    RRCF    RNG_SEED, 1, 0   ; rotate right through carry (carry = old bit0)
+    BTFSS   STATUS, C, 0
+    GOTO    RNG_NO_XOR
+    MOVLW   0xB8             ; feedback tap mask
+    XORWF   RNG_SEED, 1, 0
+RNG_NO_XOR
+    RETURN
    
 UPDATE_RGB
    
@@ -431,6 +488,7 @@ MAIN
     CALL INIT_LM
     CALL INIT_TIMER0
     CALL INIT_SERVO
+    CALL INIT_PLAY_GAME
     CALL RECALC_SERVO_TARGET    ; Set initial 0-degree baseline target at startup
 
 LOOP
