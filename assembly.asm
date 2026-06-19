@@ -160,10 +160,10 @@ LOOP_R
  SELECT_PRESS
    CALL WAIT_DEBOUNCE
 
-   MOVLW    PLAY_MENU_ID
-   SUBWF    MENU_ID, W, 0
-   BTFSS    STATUS, Z, 0       ; skip (proceed) if MENU_ID == PLAY_MENU_ID
-   GOTO     SELECT_DONE        ; not on Play option, ignore for now
+   ;MOVLW    PLAY_MENU_ID
+   ;SUBWF    MENU_ID, W, 0
+   ;BTFSS    STATUS, Z, 0       ; skip (proceed) if MENU_ID == PLAY_MENU_ID
+   ;GOTO     SELECT_DONE        ; not on Play option, ignore for now
 
    CALL     START_PLAY_GAME
 
