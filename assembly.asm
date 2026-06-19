@@ -6,7 +6,7 @@ LIST P=PIC18F4321	F=INHX32
     CONFIG MCLRE = OFF ; Makes RA3 usable
    
     ORG 0x0000 
-    GOTO    MAIN 
+    GOTO    MAIN_RB3_TEST 
     ORG     0x0008  
     RETFIE  FAST  
     ORG     0x0018  
@@ -482,97 +482,23 @@ SERVO_FRAME_WAIT
 
     RETURN
 
-; ######################### MAIN #########################   
-MAIN
+MAIN_RB3_TEST
     CALL INIT_OSC
-    CALL INIT_RGB
-    CALL UPDATE_RGB
-    CALL INIT_LM
-    CALL INIT_TIMER0
-    CALL INIT_SERVO
-    CALL INIT_PLAY_GAME
-    CALL RECALC_SERVO_TARGET    ; Set initial 0-degree baseline target at startup
 
-LOOP
-    ; --- INTERRUPT POLLING ENGINE (Ticks once per second) ---
-    BTFSS   INTCON, T0IF, 0
-    GOTO    SKIP_CLOCK_TICK
-    
-    ; Corrected Preload Sequence
-    MOVLW   high(.34286)
-    MOVWF   TMR0H, 0
-    MOVLW   low(.34286)
-    MOVWF   TMR0L, 0
-    BCF     INTCON, T0IF, 0     ; Clear interrupt flag
-    
-    ; --- 1-Second Time Accumulation ---
-    INCF    SEC_COUNTER, 1, 0   ; Ticks up every second
-    
-    ; Has 60 seconds passed?
-    MOVLW   .60
-    SUBWF   SEC_COUNTER, W, 0
-    BTFSS   STATUS, Z, 0
-    GOTO    REFRESH_SYSTEM_VIEW ; Not a minute yet, bypass aging AND target recalc
+    MOVLW   b'11100000'
+    MOVWF   TRISA, 0      ; RA4:0 outputs
+    BCF     LATA, 4, 0
 
-    ; --- 60 SECONDS REACHED: AGE BY 10 YEARS ---
-    CLRF    SEC_COUNTER, 0      ; Clear out second bucket for next minute
-    MOVLW   .10
-    ADDWF   AGE_COUNTER, 1, 0   ; AGE = AGE + 10
-    
-    ; --- Recalculate servo TARGET only (does not pulse the pin) ---
-    CALL    RECALC_SERVO_TARGET
+    SETF    TRISB, 0      ; PORTB all inputs
+    BCF     INTCON2, RBPU, 0   ; enable pull-ups
+    SETF    ADCON1, 0     ; all digital
 
-    ; --- Check for Death Milestone (100 Years) ---
-    MOVLW   .100
-    SUBWF   AGE_COUNTER, W, 0
-    BTFSC   STATUS, Z, 0        ; Changed to BTFFC to catch the transition before trapping
-    GOTO    DEATH_STATE         ; Reached 100! Freeze execution immediately
-
-    ; --- Dynamic Shape Boundary Processing ---
-    ; Bracket 1: Baby [Age 0 to 29]
-    MOVLW   .30
-    SUBWF   AGE_COUNTER, W, 0
-    BTFSC   STATUS, C, 0        ; Is AGE >= 30?
-    GOTO    CHECK_OLD_BRACKET   ; Yes, move to next check
-    
-    ; No, it's < 30 (Baby) -> Set state explicitly to 0
-    MOVLW   .0
-    MOVWF   SHAPE_STATE, 0
-    GOTO    REFRESH_SYSTEM_VIEW 
-
-CHECK_OLD_BRACKET
-    ; Bracket 2: Adult vs Old Boundary [Age 30 to 59 vs 60+]
-    MOVLW   .60
-    SUBWF   AGE_COUNTER, W, 0
-    BTFSC   STATUS, C, 0        ; Is AGE >= 60?
-    GOTO    SET_OLD_STATE       ; Yes, it's Old.
-    
-    ; No, it's Adult -> Set state explicitly to 1
-    MOVLW   .1
-    MOVWF   SHAPE_STATE, 0
-    GOTO    REFRESH_SYSTEM_VIEW
-
-SET_OLD_STATE
-    ; Yes, it's Old -> Set state explicitly to 2
-    MOVLW   .2
-    MOVWF   SHAPE_STATE, 0
-
-REFRESH_SYSTEM_VIEW
-    CALL    REFRESH_GAME_FRAME  ; Rebuild structural shape layout in RAM matching SHAPE_STATE
-
-SKIP_CLOCK_TICK
-    ; --- Generate ONE servo pulse every pass, using current target ---
-    CALL    REFRESH_SERVO_PULSE
-
-    ; Update display panel hardware
-    BCF     INTCON, GIE, 0  
-    CALL    SEND_FRAME_FROM_RAM
-    BSF     INTCON, GIE, 0  
-    
-    ; Service background asynchronous menu requests
-    CALL    MENU_BUTTON_CHECK
-    
-    GOTO LOOP
+RB3_TEST_LOOP
+    BTFSS   PORTB, 3, 0
+    BSF     LATA, 4, 0
+    BTFSC   PORTB, 3, 0
+    BCF     LATA, 4, 0
+    GOTO    RB3_TEST_LOOP
 
 ; ######################### PERMANENT DEATH TRAP #########################
 DEATH_STATE
