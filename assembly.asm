@@ -114,7 +114,7 @@ MENU_BUTTON_CHECK
    CALL	MENU_LEFT
    BTFSS PORTB, 1, 0
    CALL	MENU_RIGHT
-   BTFSS PORTB, 2, 0    ; SELECT button (was a NOP placeholder before)
+   BTFSC PORTB, 2, 0    ; SELECT button (was a NOP placeholder before)
    CALL SELECT_PRESS
 
    RETURN
@@ -162,7 +162,7 @@ SELECT_PRESS
    
    ; Confirm RB2 is still actually pressed after debounce
    ; (rejects spurious calls from floating pin)
-   BTFSC    PORTB, 2, 0
+   BTFSS    PORTB, 2, 0
    RETURN               ; went high during debounce = noise/float, bail out
 
    MOVLW    PLAY_MENU_ID
@@ -174,7 +174,7 @@ SELECT_PRESS
 
 SELECT_DONE
 LOOP_SEL
-   BTFSS    PORTB, 2, 0
+   BTFSC    PORTB, 2, 0
    GOTO     LOOP_SEL
    CALL     WAIT_DEBOUNCE
    RETURN
