@@ -554,6 +554,9 @@ LOOP
     INCF    SEC_COUNTER, 1, 0  
 
     CALL    REFRESH_SERVO_PULSE
+    ; --- DIAGNOSTIC TEST ---
+    MOVLW   b'00000001'  ; Does this light up Segment A? Or Segment G? Or DP?
+    MOVWF   LATD, 0
     
     MOVLW   .60
     SUBWF   SEC_COUNTER, W, 0
