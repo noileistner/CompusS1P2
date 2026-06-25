@@ -52,8 +52,6 @@ PLAY_MENU_ID    EQU 0x00    ; ASSUMPTION: MENU_ID value that represents "Play" -
 RNG_SEED        EQU 0x35    ; running LFSR state
 RANDOM_NUM      EQU 0x36    ; latest generated 4-bit number (0-15)
 
-BTN_STATE       EQU 0x37    ; Tracks if a button was already handled (0=None, 1=Handled)
-
 ;######################### BASE_CODE #########################
 
 INIT_OSC   ; Configure the microcontroller @ 32MHz w/ internal oscillator 
@@ -90,13 +88,15 @@ DB_WAIT				    ;3c*254 + 2 = 764
 ; ######################### RGB_MENU #########################
      
 INIT_RGB
-   SETF	   ADCON1,0   ; Make all pins digital
-   CLRF	   TRISD,0	;PORTD output
-   CLRF	   LATD,0	;CLEAR D
-   SETF	   TRISB,0	;PORTB intro
-   BCF      INTCON2, RBPU,0   ; enable PORTB pull-ups
-   CLRF     MENU_ID, 0
-   CLRF     BTN_STATE, 0      ; Clear button latch state on boot
+   SETF	    ADCON1,0   ; Make all pins digital
+   
+   CLRF	    TRISD,0	;PORTD output
+   CLRF	    LATD,0	;CLEAR D
+   
+   SETF	    TRISB,0	;PORTB intro
+   BCF     INTCON2, RBPU,0   ; enable PORTB pull-ups
+   
+   CLRF MENU_ID, 0
    
    RETURN 
 
@@ -110,85 +110,67 @@ INIT_PLAY_GAME
    
  
 MENU_BUTTON_CHECK
-   ; --- STEP 1: Check if ALL buttons are released (all lines read 1) ---
-   MOVF     PORTB, W, 0
-   ANDLW    b'00000111'       ; Look only at RB0, RB1, RB2
-   SUBLW    b'00000111'       ; Check if all three are high (1-1=0)
-   BTFSC    STATUS, Z, 0
-   CLRF     BTN_STATE, 0      ; All released! Clear latch so next press is allowed
+   BTFSS PORTB, 0, 0	;skip if set (buttons 0 when pressed)
+   CALL	MENU_LEFT
+   BTFSS PORTB, 1, 0
+   CALL	MENU_RIGHT
+   BTFSC PORTB, 2, 0    ; SELECT button (was a NOP placeholder before)
+   CALL SELECT_PRESS
 
-   ; --- STEP 2: If a button is already latched, skip reading them entirely ---
-   MOVF     BTN_STATE, W, 0
-   BTFSS    STATUS, Z, 0
-   RETURN                     ; Already handled this press, exit cleanly!
-
-   ; --- STEP 3: Read active-low button triggers ---
-   BTFSS    PORTB, 0, 0       ; Left Button
-   GOTO     TRIGGER_LEFT
-   BTFSS    PORTB, 1, 0       ; Right Button
-   GOTO     TRIGGER_RIGHT
-   BTFSS    PORTB, 2, 0       ; Select Button
-   GOTO     TRIGGER_SELECT
    RETURN
    
    
-TRIGGER_LEFT
-   CALL     WAIT_DEBOUNCE
-   BTFSC    PORTB, 0, 0       ; Verify still pressed
-   RETURN
-   SETF     BTN_STATE, 0      ; Latch press state
-   GOTO     MENU_LEFT
-
-TRIGGER_RIGHT
-   CALL     WAIT_DEBOUNCE
-   BTFSC    PORTB, 1, 0       ; Verify still pressed
-   RETURN
-   SETF     BTN_STATE, 0      ; Latch press state
-   GOTO     MENU_RIGHT
-
-TRIGGER_SELECT
-   CALL     WAIT_DEBOUNCE
-   BTFSC    PORTB, 2, 0       ; Verify still pressed
-   RETURN
-   SETF     BTN_STATE, 0      ; Latch press state
-   GOTO     SELECT_PRESS
-
 MENU_LEFT
-   MOVF     MENU_ID,W,0
+   CALL WAIT_DEBOUNCE
+   MOVF	    MENU_ID,W,0
    BTFSS    STATUS, Z ,0
-   GOTO     DECREMENT
+   GOTO	DECREMENT
    MOVLW    0x02
    MOVWF    MENU_ID, 0
-   GOTO     SKIP_DECREMENT
+   GOTO	    SKIP_DECREMENT
 DECREMENT
-   DECF     MENU_ID,1,0
+   DECF	MENU_ID,1,0
 SKIP_DECREMENT
-   CALL     UPDATE_RGB
+   CALL	UPDATE_RGB
+LOOP_L
+   BTFSS    PORTB,0,0	
+   GOTO LOOP_L
+   CALL WAIT_DEBOUNCE
    RETURN
   
+   
 MENU_RIGHT 
+   CALL WAIT_DEBOUNCE
    MOVLW    0x02
    SUBWF    MENU_ID,W,0
-   BTFSC    STATUS,Z,0   
-   GOTO     WRAP_RIGHT
-   INCF     MENU_ID,1,0
-   GOTO     RSKIP_RESET 
+   BTFSC    STATUS,Z,0	;skip if clear (menu=2, answer = 0)
+   GOTO	    WRAP_RIGHT
+   INCF	    MENU_ID,1,0
+   GOTO	RSKIP_RESET 
 WRAP_RIGHT
-   CLRF     MENU_ID, 0
+   CLRF	MENU_ID, 0
 RSKIP_RESET
-   CALL     UPDATE_RGB
+   CALL	UPDATE_RGB
+LOOP_R
+   BTFSS    PORTB,1,0
+   GOTO LOOP_R
+   CALL WAIT_DEBOUNCE
    RETURN
  
 SELECT_PRESS
+   CALL WAIT_DEBOUNCE
+   
+   ; After debounce, if RB2 not still HIGH = it was noise, bail
+   BTFSS    PORTB, 2, 0
+   RETURN
+
    MOVLW    PLAY_MENU_ID
    SUBWF    MENU_ID, W, 0
    BTFSS    STATUS, Z, 0
-   RETURN                     ; Not play menu, return safely
-
-   CALL     START_PLAY_GAME
    RETURN
 
-SELECT_DONE
+   CALL     START_PLAY_GAME
+
 LOOP_SEL
    BTFSC    PORTB, 2, 0
    GOTO     LOOP_SEL
