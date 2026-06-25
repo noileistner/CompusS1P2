@@ -48,7 +48,7 @@ SERVO_ON_TIME_H EQU 0x31    ; working high counter
 SERVO_FRAME_CNT EQU 0x32
 
 ; --- PLAY GAME / RANDOM NUMBER VARIABLES ---
-PLAY_MENU_ID    EQU 0x00    ; ASSUMPTION: MENU_ID value that represents "Play"
+PLAY_MENU_ID    EQU 0x02    ; ASSUMPTION: MENU_ID value that represents "Play"
 RNG_SEED        EQU 0x35    ; running LFSR state
 RANDOM_NUM      EQU 0x36    ; latest generated 4-bit number (0-15)
 BTN_STATE       EQU 0x37    ; Latch tracking register: 0=None pressed, 1=Handled
