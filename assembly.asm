@@ -246,7 +246,8 @@ DISPLAY_7SEG
     MOVLW   0
     ADDWFC  TBLPTRH, F, 0       ; Carry tracking
 
-    TBLRD* MOVF    TABLAT, W, 0
+    TBLRD* 
+    MOVF    TABLAT, W, 0
     MOVWF   LATD, 0            ; Push exact illumination array directly out of PORTD
     RETURN
 
