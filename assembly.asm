@@ -34,7 +34,8 @@ HEALTH_STATE    EQU 0x2D    ; 0 = Green, 1 = Yellow, 2 = Red
     
 FRAME_BUFF      EQU 0x060   ;will hold a frame in ram 
     
-SERVO_PIN       EQU 1       ; RD1 will be our Servo signal output pin
+GRID_PIN        EQU 0       ; RE0 will be our LED Matrix Grid signal output
+SERVO_PIN       EQU 4       ; RC4 will be our Servo signal output pin
 
 ; --- Servo pulse-width target, latched once a minute, consumed every loop ---
 SERVO_TARGET_L  EQU 0x2E    ; low byte of target HIGH-time count
@@ -83,23 +84,38 @@ DB_WAIT
      
 INIT_RGB
    SETF     ADCON1,0   ; Make all pins digital
-   CLRF     TRISD,0    ; PORTD output
-   CLRF     LATD,0     ; CLEAR D
+   CLRF     TRISD,0    ; PORTD configured completely as outputs for 7-Segment Display
+   CLRF     LATD,0     ; Clear 7-Segment outputs on boot
+   
+   ; Configure RC7:RC5 as outputs for the RGB menu system, RC4 remains handled by Servo Setup
+   MOVF     TRISC, W, 0
+   ANDLW    b'00011111' ; Clear bits 7, 6, 5 (0 = Output)
+   MOVWF    TRISC, 0
+   
+   MOVF     LATC, W, 0
+   ANDLW    b'00011111' ; Clear RGB indicators on boot
+   MOVWF    LATC, 0
+
    SETF     TRISB,0    ; PORTB input
    BCF      INTCON2, RBPU,0   ; enable PORTB pull-ups
    MOVLW    0x02
    MOVWF    MENU_ID, 0
    CLRF     BTN_STATE, 0      ; Start unlatched
-   RETURN 
+   RETURN
 
 INIT_PLAY_GAME
-    MOVLW   b'11100000'     ; RA7:5 = inputs, RA4:0 = outputs (RA4 & RA3:0 are outputs!)
+    MOVLW   b'11101111'     ; RA7:5 = inputs, RA4:0 = outputs (RA4 & RA3:0 are outputs!)
     MOVWF   TRISA, 0
+    BCF     LATA, 4, 0
+
+    ; --- Configure PORTC (RC3:RC0 are outputs for the 4-bit number) ---
+    MOVF    TRISC, W, 0
+    ANDLW   b'11110000'     ; Clear bits 3, 2, 1, 0 (0 = Output) while preserving RC7:RC4
+    MOVWF   TRISC, 0
     
-    ; Explicitly clear PORTA latches so everything starts completely turned OFF
-    MOVF    LATA, W, 0
-    ANDLW   b'11100000'     ; Clear bits 4, 3, 2, 1, 0
-    MOVWF   LATA, 0
+    MOVF    LATC, W, 0
+    ANDLW   b'11110000'     ; Explicitly clear the lower 4 bits of PORTC at boot
+    MOVWF   LATC, 0
 
     MOVLW   0xA5            ; non-zero seed
     MOVWF   RNG_SEED, 0
@@ -156,10 +172,11 @@ CH_SELECT_EDGE
 
 
 MENU_LEFT
-    ; --- Clear the game status (RA4) and RNG LEDs (RA3:0) when leaving ---
-    MOVF    LATA, W, 0
-    ANDLW   b'11100000'     ; Safely strip away bits 4 through 0
-    MOVWF   LATA, 0
+    ; 1. Clear RA4 on PORTA
+    BCF     LATA, 4, 0      
+
+    ; 2. Clear 7-Segment display on PORTD
+    CLRF    LATD, 0
 
     MOVF    MENU_ID,W,0
     BTFSS   STATUS, Z ,0
@@ -175,10 +192,11 @@ SKIP_DECREMENT
   
    
 MENU_RIGHT 
-    ; --- Clear the game status (RA4) and RNG LEDs (RA3:0) when leaving ---
-    MOVF    LATA, W, 0
-    ANDLW   b'11100000'     ; Safely strip away bits 4 through 0
-    MOVWF   LATA, 0
+    ; 1. Clear RA4 on PORTA
+    BCF     LATA, 4, 0      
+
+    ; 2. Clear 7-Segment display on PORTD
+    CLRF    LATD, 0
 
     MOVLW   0x02
     SUBWF   MENU_ID,W,0
@@ -206,26 +224,46 @@ SELECT_PRESS
 START_PLAY_GAME
    CALL     UPDATE_RNG
    MOVF     RNG_SEED, W, 0
-   ANDLW    0x0F               ; 0-15
+   ANDLW    0x0F               ; Isolate 4 bits (0-15)
    MOVWF    RANDOM_NUM, 0
 
-   MOVF     PORTA, W, 0
-   ANDLW    b'11100000'        
-   IORWF    RANDOM_NUM, W, 0   
-   MOVWF    LATA, 0            
+   ; --- Map through Decoder Table and update 7-Segment display ---
+   CALL     DISPLAY_7SEG
 
-   BSF      LATA, 4, 0
+   BSF      LATA, 4, 0         ; Light up the game state active indicator
    RETURN
 
+DISPLAY_7SEG
+    MOVLW   UPPER(SEGMENT_TABLE)
+    MOVWF   TBLPTRU, 0
+    MOVLW   HIGH(SEGMENT_TABLE)
+    MOVWF   TBLPTRH, 0
+    MOVLW   LOW(SEGMENT_TABLE)
+    MOVWF   TBLPTRL, 0
+
+    MOVF    RANDOM_NUM, W, 0
+    ADDWF   TBLPTRL, F, 0
+    MOVLW   0
+    ADDWFC  TBLPTRH, F, 0       ; Carry tracking
+
+    TBLRD* MOVF    TABLAT, W, 0
+    MOVWF   LATD, 0            ; Push exact illumination array directly out of PORTD
+    RETURN
+
 UPDATE_RNG
-    MOVF    TMR0L, W, 0
-    XORWF   RNG_SEED, 1, 0   
-    RRCF    RNG_SEED, 1, 0   
-    BTFSS   STATUS, C, 0
-    GOTO    RNG_NO_XOR
-    MOVLW   0xB8             
-    XORWF   RNG_SEED, 1, 0
-RNG_NO_XOR
+    ; 1. Read the fast-changing low byte of Timer0
+    MOVF    TMR0L, W, 0         ; W = TMR0L
+
+    ; 2. Multiply by an odd number (e.g., 7 or 11) to scatter the bits
+    MULLW   .7                  ; PRODL = TMR0L * 7
+
+    ; 3. Shift the resulting byte right twice using RRNCF (Rotate Right No Carry)
+    ; This drops the predictable lowest bits and replaces them with mixed bits
+    RRNCF   PRODL, F, 0         ; Shift right 1st time
+    RRNCF   PRODL, W, 0         ; Shift right 2nd time into WREG
+
+    ; 4. Save the scrambled result into your seed variable
+    MOVWF   RNG_SEED, 0
     RETURN
    
 UPDATE_RGB
@@ -237,25 +275,27 @@ UPDATE_RGB
    GOTO     RGB_1
    GOTO     RGB_2
 RGB_2
-   BSF  LATD,4,0
-   BSF  LATD,5,0
-   BCF  LATD,6,0
+   BSF  LATC,5,0
+   BSF  LATC,6,0
+   BCF  LATC,7,0
    RETURN
 RGB_1
-   BSF  LATD,4,0
-   BCF  LATD,5,0
-   BSF  LATD,6,0
+   BSF  LATC,5,0
+   BCF  LATC,6,0
+   BSF  LATC,7,0
    RETURN
 RGB_0
-   BSF  LATD,4,0
-   BSF  LATD,5,0
-   BSF  LATD,6,0
+   BSF  LATC,5,0
+   BSF  LATC,6,0
+   BSF  LATC,7,0
    RETURN
    
 ; ######################### LED_MATRIX #########################
 
 INIT_LM
-    BCF     LATD,0,0
+    ; Initialize PORTE for driving the grid
+    BCF     TRISE, GRID_PIN, 0   ; Set RE0 as Output
+    BCF     LATE, GRID_PIN, 0    ; Clear grid output line
     CALL    INIT_TAMAGOTCHI
     CALL    REFRESH_GAME_FRAME
     RETURN
@@ -268,8 +308,9 @@ INIT_TAMAGOTCHI
     RETURN
 
 INIT_SERVO
-    BCF     TRISD, SERVO_PIN, 0  
-    BCF     LATD, SERVO_PIN, 0   
+    ; Configure RC4 as output for driving the Servomotor
+    BCF     TRISC, SERVO_PIN, 0  
+    BCF     LATC, SERVO_PIN, 0   
     CLRF    SERVO_FRAME_CNT, 0
     RETURN
 
@@ -379,21 +420,21 @@ SEND_BIT
     BTFSS   BYTE_BUFF, 7, 0   
     GOTO    BIT_IS_ZERO       
 
-    BSF     LATD, 0, 0        
+    BSF     LATE, GRID_PIN, 0       ; Send Data via RE0
     NOP                       
     NOP                       
     NOP                       
     NOP                       
     NOP                       
-    BCF     LATD, 0, 0        
+    BCF     LATE, GRID_PIN, 0        
     GOTO    SEND_DONE
 
 BIT_IS_ZERO
-    BSF     LATD, 0, 0        
+    BSF     LATE, GRID_PIN, 0        
     NOP                       
     NOP                       
-    BCF     LATD, 0, 0        
-    GOTO    SEND_DONE         
+    BCF     LATE, GRID_PIN, 0        
+    GOTO    SEND_DONE       
 
 SEND_DONE
     NOP
@@ -412,7 +453,7 @@ BYTE_LOOP
    RETURN
    
 SEND_RESET
-    BCF     LATD,0,0
+    BCF     LATE, GRID_PIN, 0
     MOVLW   .200
     MOVWF   RESET_COUNT, 0
 RESET_LOOP  
@@ -441,13 +482,13 @@ INIT_TIMER0
 
 RECALC_SERVO_TARGET
     MOVF    AGE_COUNTER, W, 0
-    MULLW   .12             
+    MULLW   .23             
 
-    MOVLW   LOW(.1143)
+    MOVLW   LOW(.571)
     ADDWF   PRODL, W, 0         
     MOVWF   SERVO_TARGET_L, 0    
     
-    MOVLW   HIGH(.1143)
+    MOVLW   HIGH(.571)
     ADDWFC  PRODH, W, 0         
     MOVWF   SERVO_TARGET_H, 0      
     RETURN
@@ -456,7 +497,7 @@ REFRESH_SERVO_PULSE
     MOVFF   SERVO_TARGET_L, SERVO_ON_TIME
     MOVFF   SERVO_TARGET_H, SERVO_ON_TIME_H
 
-    BSF     LATD, SERVO_PIN, 0  
+    BSF     LATC, SERVO_PIN, 0  
 
 SERVO_PULSE_LOOP                      
     NOP                          
@@ -469,7 +510,7 @@ SERVO_PULSE_LOOP
     DECFSZ  SERVO_ON_TIME_H, 1, 0   
     GOTO    SERVO_PULSE_LOOP          
 
-    BCF     LATD, SERVO_PIN, 0  
+    BCF     LATC, SERVO_PIN, 0  
 
     MOVLW   .120
     MOVWF   SERVO_FRAME_CNT, 0
@@ -594,5 +635,13 @@ IMAGE_OLD
     DB  1,0,1,0,0,1,0,1
     DB  1,0,0,0,0,0,0,1
     DB  0,1,1,1,1,1,1,0
+
+; ######################### 7-SEGMENT TRANSLATION TABLE #########################
+    ORG 0x0700          
+SEGMENT_TABLE
+    ;      0     1     2     3     4     5     6     7
+    DB  0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07
+    ;      8     9     A     b     C     d     E     F
+    DB  0x7F, 0x6F, 0x77, 0x7C, 0x39, 0x5E, 0x79, 0x71
       
     END
