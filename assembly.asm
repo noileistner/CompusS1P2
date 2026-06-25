@@ -157,20 +157,25 @@ LOOP_R
    CALL WAIT_DEBOUNCE
    RETURN
  
- SELECT_PRESS
+SELECT_PRESS
    CALL WAIT_DEBOUNCE
+   
+   ; Confirm RB2 is still actually pressed after debounce
+   ; (rejects spurious calls from floating pin)
+   BTFSC    PORTB, 2, 0
+   RETURN               ; went high during debounce = noise/float, bail out
 
    MOVLW    PLAY_MENU_ID
    SUBWF    MENU_ID, W, 0
-   BTFSS    STATUS, Z, 0       ; skip (proceed) if MENU_ID == PLAY_MENU_ID
-   GOTO     SELECT_DONE        ; not on Play option, ignore for now
+   BTFSS    STATUS, Z, 0
+   GOTO     SELECT_DONE
 
    CALL     START_PLAY_GAME
 
 SELECT_DONE
 LOOP_SEL
    BTFSS    PORTB, 2, 0
-   GOTO     LOOP_SEL           ; wait for button release
+   GOTO     LOOP_SEL
    CALL     WAIT_DEBOUNCE
    RETURN
 
