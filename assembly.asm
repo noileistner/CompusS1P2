@@ -104,20 +104,22 @@ INIT_RGB
    RETURN
 
 INIT_PLAY_GAME
-    MOVLW   b'11101111'     ; RA7:5 = inputs, RA4:0 = outputs (RA4 & RA3:0 are outputs!)
+    MOVLW   b'11101111'     
     MOVWF   TRISA, 0
     BCF     LATA, 4, 0
 
-    ; --- Configure PORTC (RC3:RC0 are outputs for the 4-bit number) ---
-    MOVF    TRISC, W, 0
-    ANDLW   b'11110000'     ; Clear bits 3, 2, 1, 0 (0 = Output) while preserving RC7:RC4
-    MOVWF   TRISC, 0
-    
+    ; --- Configure PORTC cleanly without overwriting RC4 ---
+    BCF     TRISC, 0, 0     ; Set RC0 as output
+    BCF     TRISC, 1, 0     ; Set RC1 as output
+    BCF     TRISC, 2, 0     ; Set RC2 as output
+    BCF     TRISC, 3, 0     ; Set RC3 as output
+
+    ; Clear only the lower 4 bits of LATC, preserve the servo pin state
     MOVF    LATC, W, 0
-    ANDLW   b'11110000'     ; Explicitly clear the lower 4 bits of PORTC at boot
+    ANDLW   b'11110000'     ; Clears lower 4 bits, leaves RC4 state exactly as it was
     MOVWF   LATC, 0
 
-    MOVLW   0xA5            ; non-zero seed
+    MOVLW   0xA5            
     MOVWF   RNG_SEED, 0
     RETURN
    
@@ -545,7 +547,9 @@ LOOP
     MOVWF   TMR0L, 0
     BCF     INTCON, T0IF, 0     
     
-    INCF    SEC_COUNTER, 1, 0   
+    INCF    SEC_COUNTER, 1, 0  
+     
+    CALL    REFRESH_SERVO_PULSE
     
     MOVLW   .60
     SUBWF   SEC_COUNTER, W, 0
