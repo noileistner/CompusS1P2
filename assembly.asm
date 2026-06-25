@@ -224,22 +224,10 @@ SELECT_PRESS
 
 
 START_PLAY_GAME
-   CALL     UPDATE_RNG
-   MOVF     RNG_SEED, W, 0
-   ANDLW    0x0F               ; Isolate 4 bits (0-15)
-   MOVWF    RANDOM_NUM, 0      ; Store the raw random number
+   ; --- Bypassing the RNG for testing ---
+   MOVLW    .8                 ; Force the decimal value 8
+   MOVWF    RANDOM_NUM, 0      ; Put it straight into your variable
 
-   ; --- Range Limit Check (0-9) ---
-   MOVLW    .10
-   SUBWF    RANDOM_NUM, W, 0   ; WREG = RANDOM_NUM - 10
-   BTFSS    STATUS, C, 0       ; If Carry is 0, then RANDOM_NUM < 10 (It's 0-9)
-   BRA      VALID_NUM          ; Safe! Skip the adjustment entirely
-
-   ; If Carry was 1, it's 10 or greater. Subtract 10 to bring it down to 0-5
-   MOVLW    .10
-   SUBWF    RANDOM_NUM, F, 0
-
-VALID_NUM
    ; --- Map through Decoder Table and update 7-Segment display ---
    CALL     DISPLAY_7SEG
 
