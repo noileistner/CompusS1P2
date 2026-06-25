@@ -227,8 +227,19 @@ START_PLAY_GAME
    CALL     UPDATE_RNG
    MOVF     RNG_SEED, W, 0
    ANDLW    0x0F               ; Isolate 4 bits (0-15)
-   MOVWF    RANDOM_NUM, 0
+   
+   ; --- Range Limit Check (0-9) ---
+   MOVWF    RANDOM_NUM, 0      ; Temporarily store it
+   MOVLW    .10
+   SUBWF    RANDOM_NUM, W, 0   ; WREG = RANDOM_NUM - 10
+   BTFSS    STATUS, C, 0       ; If Carry is 0, then RANDOM_NUM < 10 (It's a valid 0-9)
+   GOTO     VALID_NUM
+   
+   ; If it's 10 or greater, subtract 10 to bring it into the 0-5 range
+   MOVLW    .10
+   SUBWF    RANDOM_NUM, F, 0
 
+VALID_NUM
    ; --- Map through Decoder Table and update 7-Segment display ---
    CALL     DISPLAY_7SEG
 
