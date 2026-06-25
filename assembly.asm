@@ -224,10 +224,22 @@ SELECT_PRESS
 
 
 START_PLAY_GAME
-   ; --- Bypassing the RNG for testing ---
-   MOVLW    .8                 ; Force the decimal value 8
-   MOVWF    RANDOM_NUM, 0      ; Put it straight into your variable
+   CALL     UPDATE_RNG
+   MOVF     RNG_SEED, W, 0
+   ANDLW    0x0F               ; Isolate 4 bits (0-15)
+   MOVWF    RANDOM_NUM, 0      ; Store raw value
 
+   ; --- Strict Check: If value >= 10, discard or force adjust ---
+   MOVLW    .10
+   CPFSPLT  RANDOM_NUM, 0      ; Compare F with W. Skip next instruction if RANDOM_NUM < 10
+   BRA      FIX_OVERFLOW       ; If 10 or greater, go fix it
+   BRA      VALID_NUM          ; If 0-9, it's perfectly safe!
+
+FIX_OVERFLOW
+   MOVLW    .10
+   SUBWF    RANDOM_NUM, F, 0   ; Subtract 10 from the out-of-bounds number (10-15 becomes 0-5)
+
+VALID_NUM
    ; --- Map through Decoder Table and update 7-Segment display ---
    CALL     DISPLAY_7SEG
 
