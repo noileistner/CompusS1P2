@@ -487,11 +487,15 @@ RECALC_SERVO_TARGET
     MOVF    AGE_COUNTER, W, 0
     MULLW   .23             
 
-    MOVLW   LOW(.571)
+    ; Securely clear Carry flag before running addition math
+    BCF     STATUS, C, 0
+
+    ; Base count offset updated to .1200 (~1.5ms Center Position at 32MHz)
+    MOVLW   LOW(.1200)
     ADDWF   PRODL, W, 0         
     MOVWF   SERVO_TARGET_L, 0    
     
-    MOVLW   HIGH(.571)
+    MOVLW   HIGH(.1200)
     ADDWFC  PRODH, W, 0         
     MOVWF   SERVO_TARGET_H, 0      
     RETURN
@@ -548,7 +552,7 @@ LOOP
     BCF     INTCON, T0IF, 0     
     
     INCF    SEC_COUNTER, 1, 0  
-     
+
     CALL    REFRESH_SERVO_PULSE
     
     MOVLW   .60
@@ -645,8 +649,8 @@ IMAGE_OLD
     ORG 0x0700          
 SEGMENT_TABLE
     ;      0     1     2     3     4     5     6     7
-    DB  0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07
+    DB  0xFC, 0x60, 0xDA, 0xF2, 0x66, 0xB6, 0xBE, 0xE0
     ;      8     9     A     b     C     d     E     F
-    DB  0x7F, 0x6F, 0x77, 0x7C, 0x39, 0x5E, 0x79, 0x71
+    DB  0xFE, 0xF6, 0xEE, 0x3E, 0x9C, 0x7A, 0x9E, 0x8E
       
     END
