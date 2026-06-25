@@ -227,17 +227,17 @@ START_PLAY_GAME
    CALL     UPDATE_RNG
    MOVF     RNG_SEED, W, 0
    ANDLW    0x0F               ; Isolate 4 bits (0-15)
-   MOVWF    RANDOM_NUM, 0      ; Store raw value
+   MOVWF    RANDOM_NUM, 0      ; Store the raw random number
 
-   ; --- Strict Check: If value >= 10, discard or force adjust ---
+   ; --- Range Limit Check (0-9) ---
    MOVLW    .10
-   CPFSPLT  RANDOM_NUM, 0      ; Compare F with W. Skip next instruction if RANDOM_NUM < 10
-   BRA      FIX_OVERFLOW       ; If 10 or greater, go fix it
-   BRA      VALID_NUM          ; If 0-9, it's perfectly safe!
+   SUBWF    RANDOM_NUM, W, 0   ; WREG = RANDOM_NUM - 10
+   BTFSS    STATUS, C, 0       ; If Carry is 0, then RANDOM_NUM < 10 (It's 0-9)
+   BRA      VALID_NUM          ; Safe! Skip the adjustment entirely
 
-FIX_OVERFLOW
+   ; If Carry was 1, it's 10 or greater. Subtract 10 to bring it down to 0-5
    MOVLW    .10
-   SUBWF    RANDOM_NUM, F, 0   ; Subtract 10 from the out-of-bounds number (10-15 becomes 0-5)
+   SUBWF    RANDOM_NUM, F, 0
 
 VALID_NUM
    ; --- Map through Decoder Table and update 7-Segment display ---
