@@ -647,15 +647,9 @@ IMAGE_OLD
 ; ######################### 7-SEGMENT TRANSLATION TABLE #########################
     ORG 0x0700          
 SEGMENT_TABLE
-    DE  0x7D    ; 0
-    DE  0x30    ; 1
-    DE  0x6E    ; 2
-    DE  0x3E    ; 3
-    DE  0x33    ; 4
-    DE  0x2F    ; 5
-    DE  0x6F    ; 6
-    DE  0x3C    ; 7
-    DE  0x7F    ; 8
-    DE  0x3F    ; 9
+    ;      0     1     2     3     4     5     6     7
+    DB  0x7D, 0x30, 0x6E, 0x7A, 0x33, 0x5B, 0x5F, 0x70
+    ;      8     9     A     b     C     d     E     F
+    DB  0x7F, 0x7B, 0x77, 0x1F, 0x4D, 0x3E, 0x4F, 0x47
       
     END
