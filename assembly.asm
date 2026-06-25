@@ -92,8 +92,14 @@ INIT_RGB
    RETURN 
 
 INIT_PLAY_GAME
-    MOVLW   b'11100000'     ; RA3:0 = outputs, RA7:4 = inputs
+    MOVLW   b'11100000'     ; RA7:5 = inputs, RA4:0 = outputs (RA4 & RA3:0 are outputs!)
     MOVWF   TRISA, 0
+    
+    ; Explicitly clear PORTA latches so everything starts completely turned OFF
+    MOVF    LATA, W, 0
+    ANDLW   b'11100000'     ; Clear bits 4, 3, 2, 1, 0
+    MOVWF   LATA, 0
+
     MOVLW   0xA5            ; non-zero seed
     MOVWF   RNG_SEED, 0
     RETURN
@@ -149,31 +155,41 @@ CH_SELECT_EDGE
 
 
 MENU_LEFT
-   MOVF     MENU_ID,W,0
-   BTFSS    STATUS, Z ,0
-   GOTO     DECREMENT
-   MOVLW    0x02
-   MOVWF    MENU_ID, 0
-   GOTO     SKIP_DECREMENT
+    ; --- Clear the game status (RA4) and RNG LEDs (RA3:0) when leaving ---
+    MOVF    LATA, W, 0
+    ANDLW   b'11100000'     ; Safely strip away bits 4 through 0
+    MOVWF   LATA, 0
+
+    MOVF    MENU_ID,W,0
+    BTFSS   STATUS, Z ,0
+    GOTO    DECREMENT
+    MOVLW   0x02
+    MOVWF   MENU_ID, 0
+    GOTO    SKIP_DECREMENT
 DECREMENT
-   DECF     MENU_ID,1,0
+    DECF    MENU_ID,1,0
 SKIP_DECREMENT
-   CALL     UPDATE_RGB
-   RETURN
+    CALL    UPDATE_RGB
+    RETURN
   
    
 MENU_RIGHT 
-   MOVLW    0x02
-   SUBWF    MENU_ID,W,0
-   BTFSC    STATUS,Z,0   
-   GOTO     WRAP_RIGHT
-   INCF     MENU_ID,1,0
-   GOTO     RSKIP_RESET 
+    ; --- Clear the game status (RA4) and RNG LEDs (RA3:0) when leaving ---
+    MOVF    LATA, W, 0
+    ANDLW   b'11100000'     ; Safely strip away bits 4 through 0
+    MOVWF   LATA, 0
+
+    MOVLW   0x02
+    SUBWF   MENU_ID,W,0
+    BTFSC   STATUS,Z,0   
+    GOTO    WRAP_RIGHT
+    INCF    MENU_ID,1,0
+    GOTO    RSKIP_RESET 
 WRAP_RIGHT
-   CLRF     MENU_ID, 0
+    CLRF    MENU_ID, 0
 RSKIP_RESET
-   CALL     UPDATE_RGB
-   RETURN
+    CALL    UPDATE_RGB
+    RETURN
 
  
 SELECT_PRESS
