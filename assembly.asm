@@ -87,7 +87,8 @@ INIT_RGB
    CLRF     LATD,0     ; CLEAR D
    SETF     TRISB,0    ; PORTB input
    BCF      INTCON2, RBPU,0   ; enable PORTB pull-ups
-   CLRF     MENU_ID, 0
+   MOVLW    0x02
+   MOVWF    MENU_ID, 0
    CLRF     BTN_STATE, 0      ; Start unlatched
    RETURN 
 
