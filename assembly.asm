@@ -132,7 +132,7 @@ MENU_BUTTON_CHECK
    ; STEP 1: Verify if all buttons are back in their IDLE released states
    ; RB0=1 (High), RB1=1 (High), RB2=0 (Low). Mask pattern target = b'00000011'
    MOVF     PORTB, W, 0
-   ANDLW    b'00000111'       ; Check only lower 3 bits
+   ANDLW    b'00000011'       ; Check only lower 3 bits
    XORLW    b'00000011'       ; If matches idle state perfectly, working bits flip to zero
    BTFSC    STATUS, Z, 0
    CLRF     BTN_STATE, 0      ; Clears memory lock register once buttons are released
@@ -267,18 +267,11 @@ DISPLAY_7SEG
     RETURN
 
 UPDATE_RNG
-    ; 1. Read the fast-changing low byte of Timer0
-    MOVF    TMR0L, W, 0         ; W = TMR0L
-
-    ; 2. Multiply by an odd number (e.g., 7 or 11) to scatter the bits
-    MULLW   .7                  ; PRODL = TMR0L * 7
-
-    ; 3. Shift the resulting byte right twice using RRNCF (Rotate Right No Carry)
-    ; This drops the predictable lowest bits and replaces them with mixed bits
-    RRNCF   PRODL, F, 0         ; Shift right 1st time
-    RRNCF   PRODL, W, 0         ; Shift right 2nd time into WREG
-
-    ; 4. Save the scrambled result into your seed variable
+    MOVF    SEC_COUNTER, W, 0   ; use SEC_COUNTER instead - changes every second
+    XORWF   RNG_SEED, W, 0      ; XOR with running seed for extra mixing
+    MULLW   .7
+    RRNCF   PRODL, F, 0
+    RRNCF   PRODL, W, 0
     MOVWF   RNG_SEED, 0
     RETURN
    
