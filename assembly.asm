@@ -54,6 +54,9 @@ RNG_SEED        EQU 0x35    ; running LFSR state
 RANDOM_NUM      EQU 0x36    ; latest generated 4-bit number (0-15)
 BTN_STATE       EQU 0x37    ; Latch tracking register: 0=None pressed, 1=Handled
 
+GAME_ACTIVE     EQU 0x38    ; 1 = number flashing mode, 0 = idle
+SEG_PHASE       EQU 0x39    ; bit 0 toggles each 1s: 1=ON, 0=OFF
+
 ;######################### BASE_CODE #########################
 
 INIT_OSC   ; Configure the microcontroller @ 32MHz w/ internal oscillator 
@@ -224,27 +227,26 @@ SELECT_PRESS
 
 
 START_PLAY_GAME
-   CALL     UPDATE_RNG
-   MOVF     RNG_SEED, W, 0
-   ANDLW    0x0F               ; Isolate 4 bits (0-15)
-   MOVWF    RANDOM_NUM, 0      ; Store the raw random number
+    ; Generate and display first number immediately on press
+    CALL    UPDATE_RNG
+    MOVF    RNG_SEED, W, 0
+    ANDLW   0x0F
+    MOVWF   RANDOM_NUM, 0
+    MOVLW   .10
+    SUBWF   RANDOM_NUM, W, 0
+    BTFSS   STATUS, C, 0
+    BRA     SPG_VALID
+    MOVLW   .10
+    SUBWF   RANDOM_NUM, F, 0
+SPG_VALID
+    CALL    DISPLAY_7SEG
 
-   ; --- Range Limit Check (0-9) ---
-   MOVLW    .10
-   SUBWF    RANDOM_NUM, W, 0   ; WREG = RANDOM_NUM - 10
-   BTFSS    STATUS, C, 0       ; If Carry is 0, then RANDOM_NUM < 10 (It's 0-9)
-   BRA      VALID_NUM          ; Safe! Skip the adjustment entirely
-
-   ; If Carry was 1, it's 10 or greater. Subtract 10 to bring it down to 0-5
-   MOVLW    .10
-   SUBWF    RANDOM_NUM, F, 0
-
-VALID_NUM
-   ; --- Map through Decoder Table and update 7-Segment display ---
-   CALL     DISPLAY_7SEG
-
-   BSF      LATA, 4, 0         ; Light up the game state active indicator
-   RETURN
+    MOVLW   0x01
+    MOVWF   GAME_ACTIVE, 0  ; activate flash engine
+    MOVLW   0x01
+    MOVWF   SEG_PHASE, 0    ; mark as currently in ON phase
+    BSF     LATA, 4, 0
+    RETURN
 
 DISPLAY_7SEG
     MOVLW   UPPER(SEGMENT_TABLE)
@@ -319,6 +321,8 @@ INIT_TAMAGOTCHI
     CLRF    AGE_COUNTER, 0
     CLRF    SHAPE_STATE, 0
     CLRF    HEALTH_STATE, 0
+    CLRF    GAME_ACTIVE, 0
+    CLRF    SEG_PHASE, 0
     RETURN
 
 INIT_SERVO
@@ -562,10 +566,47 @@ LOOP
     MOVWF   TMR0L, 0
     BCF     INTCON, T0IF, 0     
     
-    INCF    SEC_COUNTER, 1, 0  
+    INCF    SEC_COUNTER, 1, 0
 
-    CALL    REFRESH_SERVO_PULSE
-    
+    ; --- GAME NUMBER FLASH ENGINE (runs every 0.5s tick) ---
+    MOVF    GAME_ACTIVE, W, 0
+    BZ      SKIP_GAME_FLASH         ; Not in game mode, skip
+
+    ; Has Phase 1 started playing? RB6 HIGH = game underway, stop flashing
+    BTFSC   PORTB, 6, 0
+    GOTO    STOP_GAME_FLASH
+
+    ; Toggle the phase each tick
+    INCF    SEG_PHASE, 1, 0
+    BTFSC   SEG_PHASE, 0, 0         ; bit 0 = 1 means ON phase
+    GOTO    GAME_SEG_ON
+
+    ; OFF phase: blank the 7seg
+    CLRF    LATD, 0
+    GOTO    SKIP_GAME_FLASH
+
+STOP_GAME_FLASH
+    CLRF    GAME_ACTIVE, 0          ; stop the engine
+    CLRF    LATD, 0                 ; blank display
+    GOTO    SKIP_GAME_FLASH
+
+GAME_SEG_ON
+    ; ON phase: generate new number and display it
+    CALL    UPDATE_RNG
+    MOVF    RNG_SEED, W, 0
+    ANDLW   0x0F
+    MOVWF   RANDOM_NUM, 0
+    MOVLW   .10
+    SUBWF   RANDOM_NUM, W, 0
+    BTFSS   STATUS, C, 0
+    BRA     GAME_NUM_VALID
+    MOVLW   .10
+    SUBWF   RANDOM_NUM, F, 0
+GAME_NUM_VALID
+    CALL    DISPLAY_7SEG
+
+SKIP_GAME_FLASH 
+
     MOVLW   .60
     SUBWF   SEC_COUNTER, W, 0
     BTFSS   STATUS, Z, 0
