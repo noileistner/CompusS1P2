@@ -3,7 +3,7 @@ LIST P=PIC18F4321    F=INHX32
     CONFIG  OSC=INTIO2; Internal oscillator @ 16MHz 
     CONFIG  PBADEN=DIG ; PORTB = DIGital 
     CONFIG  WDT=OFF    ; Watch Dog Timer Deactivated 
-    CONFIG MCLRE = OFF ; Makes RA3 usable
+    CONFIG MCLRE = OFF ; Makes RA3 the reset
    
     ORG 0x0000 
     GOTO    MAIN 
@@ -54,8 +54,14 @@ RNG_SEED        EQU 0x35    ; running LFSR state
 RANDOM_NUM      EQU 0x36    ; latest generated 4-bit number (0-15)
 BTN_STATE       EQU 0x37    ; Latch tracking register: 0=None pressed, 1=Handled
 
-GAME_ACTIVE     EQU 0x38    ; 1 = number flashing mode, 0 = idle
-SEG_PHASE       EQU 0x39    ; bit 0 toggles each 1s: 1=ON, 0=OFF
+GAME_ACTIVE     EQU 0x38    ; 1 = game loop running, 0 = idle
+GAME_WAIT_CNT   EQU 0x39    ; ~1s wait counter between numbers (stand-in for NewNumber pulse)
+
+; --- Game I/O pin assignments (all on PORTB) ---
+PIN_NEWNUM      EQU 5       ; RB5 - NewNumber, input, pulsed by external circuit (stubbed for now)
+PIN_PLAYING     EQU 6       ; RB6 - Playing, input, external circuit signals game stop
+PIN_RANDGEN     EQU 4       ; RB4 - RandomGenerated, output, PIC holds high while waiting on a number
+PIN_RESULT      EQU 7       ; RB7 - ResultPulse, output, stubbed for now
 
 ;######################### BASE_CODE #########################
 
@@ -112,30 +118,39 @@ INIT_PLAY_GAME
     BCF     LATA, 4, 0
 
     ; --- Configure PORTC cleanly without overwriting RC4 ---
-    BCF     TRISC, 0, 0     ; Set RC0 as output
-    BCF     TRISC, 1, 0     ; Set RC1 as output
-    BCF     TRISC, 2, 0     ; Set RC2 as output
-    BCF     TRISC, 3, 0     ; Set RC3 as output
+    BCF     TRISC, 0, 0     ; Set RC0 as output (RandomNumber bit 0)
+    BCF     TRISC, 1, 0     ; Set RC1 as output (RandomNumber bit 1)
+    BCF     TRISC, 2, 0     ; Set RC2 as output (RandomNumber bit 2)
+    BCF     TRISC, 3, 0     ; Set RC3 as output (RandomNumber bit 3)
 
     ; Clear only the lower 4 bits of LATC, preserve the servo pin state
     MOVF    LATC, W, 0
     ANDLW   b'11110000'     ; Clears lower 4 bits, leaves RC4 state exactly as it was
     MOVWF   LATC, 0
 
+    ; --- Configure game handshake pins on PORTB ---
+    ; RB5 (NewNumber) and RB6 (Playing) stay inputs (PORTB defaults to input from INIT_RGB)
+    ; RB4 (RandomGenerated) and RB7 (ResultPulse) are outputs
+    BCF     TRISB, PIN_RANDGEN, 0
+    BCF     TRISB, PIN_RESULT, 0
+    BCF     LATB, PIN_RANDGEN, 0
+    BCF     LATB, PIN_RESULT, 0
+
     MOVLW   0xA5            
     MOVWF   RNG_SEED, 0
+    CLRF    GAME_ACTIVE, 0
     RETURN
    
 
 ; --- NEW NON-BLOCKING EDGE TRIGGER MECHANISM ---
 MENU_BUTTON_CHECK
    ; STEP 1: Verify if all buttons are back in their IDLE released states
-   ; RB0=1 (High), RB1=1 (High), RB2=0 (Low). Mask pattern target = b'00000011'
+   ; RB0=1 (High), RB1=1 (High), RB2=0 (Low). Idle pattern = b'011' (RB2:RB1:RB0)
    MOVF     PORTB, W, 0
-   ANDLW    b'00000011'       ; Check only lower 3 bits
-   XORLW    b'00000011'       ; If matches idle state perfectly, working bits flip to zero
+   ANDLW    b'00000111'       ; Check bits 0,1,2 (Left, Right, Select)
+   XORLW    b'00000011'       ; Idle pattern: RB0=1,RB1=1,RB2=0 -> 011
    BTFSC    STATUS, Z, 0
-   CLRF     BTN_STATE, 0      ; Clears memory lock register once buttons are released
+   CLRF     BTN_STATE, 0      ; Clears memory lock register once ALL buttons are released
 
    ; STEP 2: If an operation is currently locked, skip reading inputs entirely
    MOVF     BTN_STATE, W, 0
@@ -183,6 +198,9 @@ MENU_LEFT
     ; 2. Clear 7-Segment display on PORTD
     CLRF    LATD, 0
 
+    ; If the game was active, fully stop it so leaving the menu can't leave it running
+    CALL    STOP_PLAY_GAME
+
     MOVF    MENU_ID,W,0
     BTFSS   STATUS, Z ,0
     GOTO    DECREMENT
@@ -202,6 +220,9 @@ MENU_RIGHT
 
     ; 2. Clear 7-Segment display on PORTD
     CLRF    LATD, 0
+
+    ; If the game was active, fully stop it so leaving the menu can't leave it running
+    CALL    STOP_PLAY_GAME
 
     MOVLW   0x02
     SUBWF   MENU_ID,W,0
@@ -225,27 +246,94 @@ SELECT_PRESS
    CALL     START_PLAY_GAME
    RETURN
 
+UPDATE_RGB
+   MOVLW    0x01
+   SUBWF    MENU_ID,W,0     
+   BTFSS    STATUS,C,0     
+   GOTO     RGB_0
+   BTFSC    STATUS,Z,0     
+   GOTO     RGB_1
+   GOTO     RGB_2
+RGB_2
+   BSF  LATC,5,0
+   BSF  LATC,6,0
+   BCF  LATC,7,0
+   RETURN
+RGB_1
+   BSF  LATC,5,0
+   BCF  LATC,6,0
+   BSF  LATC,7,0
+   RETURN
+RGB_0
+   BSF  LATC,5,0
+   BSF  LATC,6,0
+   BSF  LATC,7,0
+   RETURN
+
+; ######################### PLAY GAME (Memory Game / External IC) #########################
+;
+; Pin map (all on PORTB):
+;   RB4 PIN_RANDGEN  - output. Held HIGH while a number is on display, waiting to be
+;                       acknowledged/consumed. Dropped LOW right before the next number
+;                       is generated.
+;   RB5 PIN_NEWNUM   - input. External circuit pulses this to request the next number.
+;                       STUBBED: not yet polled. A fixed ~1s wait is used instead, so the
+;                       cycle can be tested standalone. Swap-in point is marked below.
+;   RB6 PIN_PLAYING  - input. External circuit drives this HIGH once it has taken over /
+;                       finished, which stops the generate loop entirely.
+;   RB7 PIN_RESULT   - output. STUBBED: reserved for pulsing the result once scoring is
+;                       added. Left LOW for now, never written elsewhere.
+;
+; RandomNumber nibble -> RC0-3 (already configured as outputs in INIT_PLAY_GAME)
+; 7-segment equivalent -> RD0-6 via DISPLAY_7SEG (unchanged)
+;
+; NOTE: numbers generated for THIS game are NOT clamped to 0-9 like the old flash code did -
+; the spec calls for a 4-bit number (0-15) since it's being driven out on 4 raw bits, not
+; just decoded to a single 7-seg digit. SEGMENT_TABLE already has entries up to 0xF.
 
 START_PLAY_GAME
-    ; Generate and display first number immediately on press
+    MOVLW   0x01
+    MOVWF   GAME_ACTIVE, 0
+    BCF     LATB, PIN_RANDGEN, 0   ; ensure RandomGenerated starts low
+    CALL    PLAY_GAME_NEXT_NUMBER
+    RETURN
+
+; Stops the game cleanly: clears state, drops RandomGenerated, blanks the 7-seg and RC0-3.
+; Safe to call even if the game isn't active.
+STOP_PLAY_GAME
+    CLRF    GAME_ACTIVE, 0
+    BCF     LATB, PIN_RANDGEN, 0
+
+    CLRF    LATD, 0                ; blank 7-segment
+
+    MOVF    LATC, W, 0             ; blank RC0-3 only, preserve RC4-7 (servo + RGB)
+    ANDLW   b'11110000'
+    MOVWF   LATC, 0
+    RETURN
+
+; Generates one number, drives it out on RC0-3 and the 7-segment, then raises
+; PIN_RANDGEN to signal "number ready, waiting for acknowledgement".
+PLAY_GAME_NEXT_NUMBER
     CALL    UPDATE_RNG
     MOVF    RNG_SEED, W, 0
     ANDLW   0x0F
-    MOVWF   RANDOM_NUM, 0
-    MOVLW   .10
-    SUBWF   RANDOM_NUM, W, 0
-    BTFSS   STATUS, C, 0
-    BRA     SPG_VALID
-    MOVLW   .10
-    SUBWF   RANDOM_NUM, F, 0
-SPG_VALID
+    MOVWF   RANDOM_NUM, 0          ; full 4-bit range (0-15), no clamping
+
+    ; --- Output raw binary on RC0-3 ---
+    MOVF    LATC, W, 0
+    ANDLW   b'11110000'            ; preserve RC4-7 (servo + RGB), clear RC0-3
+    IORWF   RANDOM_NUM, W, 0       ; RANDOM_NUM is already masked to 4 bits, safe to OR in directly
+    MOVWF   LATC, 0
+
+    ; --- Output 7-segment equivalent on RD0-6 ---
     CALL    DISPLAY_7SEG
 
-    MOVLW   0x01
-    MOVWF   GAME_ACTIVE, 0  ; activate flash engine
-    MOVLW   0x01
-    MOVWF   SEG_PHASE, 0    ; mark as currently in ON phase
-    BSF     LATA, 4, 0
+    ; --- Signal RandomGenerated: number is ready, waiting on acknowledgement ---
+    BSF     LATB, PIN_RANDGEN, 0
+
+    ; --- Reset the stand-in wait counter (swap point for real NewNumber pulse later) ---
+    MOVLW   0x02
+    MOVWF   GAME_WAIT_CNT, 0
     RETURN
 
 DISPLAY_7SEG
@@ -274,30 +362,37 @@ UPDATE_RNG
     RRNCF   PRODL, W, 0
     MOVWF   RNG_SEED, 0
     RETURN
-   
-UPDATE_RGB
-   MOVLW    0x01
-   SUBWF    MENU_ID,W,0     
-   BTFSS    STATUS,C,0     
-   GOTO     RGB_0
-   BTFSC    STATUS,Z,0     
-   GOTO     RGB_1
-   GOTO     RGB_2
-RGB_2
-   BSF  LATC,5,0
-   BSF  LATC,6,0
-   BCF  LATC,7,0
-   RETURN
-RGB_1
-   BSF  LATC,5,0
-   BCF  LATC,6,0
-   BSF  LATC,7,0
-   RETURN
-RGB_0
-   BSF  LATC,5,0
-   BSF  LATC,6,0
-   BSF  LATC,7,0
-   RETURN
+
+; Called once per ~0.5s TMR0 tick from the main loop while GAME_ACTIVE=1.
+; Checks PIN_PLAYING first (stop condition always wins), then counts down the
+; stand-in wait before moving to the next number.
+GAME_TICK
+    MOVF    GAME_ACTIVE, W, 0
+    BZ      GAME_TICK_DONE
+
+    ; Playing going HIGH stops the game outright, regardless of wait state
+    BTFSC   PORTB, PIN_PLAYING, 0
+    GOTO    GAME_TICK_STOP
+
+    ; --- STUB: waiting for NewNumber (RB5) goes here instead of the timed wait. ---
+    ; To switch over later, replace the DECFSZ/GOTO pair below with:
+    ;   BTFSS   PORTB, PIN_NEWNUM, 0
+    ;   RETURN
+    ;   BCF     LATB, PIN_RANDGEN, 0
+    ;   CALL    PLAY_GAME_NEXT_NUMBER
+    DECFSZ  GAME_WAIT_CNT, 1, 0
+    GOTO    GAME_TICK_DONE
+
+    BCF     LATB, PIN_RANDGEN, 0
+    CALL    PLAY_GAME_NEXT_NUMBER
+    GOTO    GAME_TICK_DONE
+
+GAME_TICK_STOP
+    CALL    STOP_PLAY_GAME
+    ; Result pulse (RB7) intentionally not driven yet - add scoring/result logic here later.
+
+GAME_TICK_DONE
+    RETURN
    
 ; ######################### LED_MATRIX #########################
 
@@ -315,7 +410,6 @@ INIT_TAMAGOTCHI
     CLRF    SHAPE_STATE, 0
     CLRF    HEALTH_STATE, 0
     CLRF    GAME_ACTIVE, 0
-    CLRF    SEG_PHASE, 0
     RETURN
 
 INIT_SERVO
@@ -561,44 +655,8 @@ LOOP
     
     INCF    SEC_COUNTER, 1, 0
 
-    ; --- GAME NUMBER FLASH ENGINE (runs every 0.5s tick) ---
-    MOVF    GAME_ACTIVE, W, 0
-    BZ      SKIP_GAME_FLASH         ; Not in game mode, skip
-
-    ; Has Phase 1 started playing? RB6 HIGH = game underway, stop flashing
-    BTFSC   PORTB, 6, 0
-    GOTO    STOP_GAME_FLASH
-
-    ; Toggle the phase each tick
-    INCF    SEG_PHASE, 1, 0
-    BTFSC   SEG_PHASE, 0, 0         ; bit 0 = 1 means ON phase
-    GOTO    GAME_SEG_ON
-
-    ; OFF phase: blank the 7seg
-    CLRF    LATD, 0
-    GOTO    SKIP_GAME_FLASH
-
-STOP_GAME_FLASH
-    CLRF    GAME_ACTIVE, 0          ; stop the engine
-    CLRF    LATD, 0                 ; blank display
-    GOTO    SKIP_GAME_FLASH
-
-GAME_SEG_ON
-    ; ON phase: generate new number and display it
-    CALL    UPDATE_RNG
-    MOVF    RNG_SEED, W, 0
-    ANDLW   0x0F
-    MOVWF   RANDOM_NUM, 0
-    MOVLW   .10
-    SUBWF   RANDOM_NUM, W, 0
-    BTFSS   STATUS, C, 0
-    BRA     GAME_NUM_VALID
-    MOVLW   .10
-    SUBWF   RANDOM_NUM, F, 0
-GAME_NUM_VALID
-    CALL    DISPLAY_7SEG
-
-SKIP_GAME_FLASH 
+    ; --- GAME ENGINE (runs every ~0.5s tick) ---
+    CALL    GAME_TICK
 
     MOVLW   .60
     SUBWF   SEC_COUNTER, W, 0
