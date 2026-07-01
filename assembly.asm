@@ -3,7 +3,7 @@ LIST P=PIC18F4321    F=INHX32
     CONFIG  OSC=INTIO2; Internal oscillator @ 16MHz 
     CONFIG  PBADEN=DIG ; PORTB = DIGital 
     CONFIG  WDT=OFF    ; Watch Dog Timer Deactivated 
-    CONFIG MCLRE = OFF ; Makes RA3 the reset
+    CONFIG MCLRE = ON ; Makes RA3 the reset
    
     ORG 0x0000 
     GOTO    MAIN 
@@ -49,19 +49,35 @@ SERVO_ON_TIME_H EQU 0x31    ; working high counter
 SERVO_FRAME_CNT EQU 0x32
 
 ; --- PLAY GAME / RANDOM NUMBER VARIABLES ---
-PLAY_MENU_ID    EQU 0x02    ; ASSUMPTION: MENU_ID value that represents "Play"
+PLAY_MENU_ID    EQU 0x02    ; MENU_ID value that represents "Play"
 RNG_SEED        EQU 0x35    ; running LFSR state
-RANDOM_NUM      EQU 0x36    ; latest generated 4-bit number (0-15)
+RANDOM_NUM      EQU 0x36    ; latest generated 4-bit number (0-9)
 BTN_STATE       EQU 0x37    ; Latch tracking register: 0=None pressed, 1=Handled
-
-GAME_ACTIVE     EQU 0x38    ; 1 = game loop running, 0 = idle
-GAME_WAIT_CNT   EQU 0x39    ; ~1s wait counter between numbers (stand-in for NewNumber pulse)
+GAME_ACTIVE     EQU 0x38    ; 1 = game running, 0 = idle
 
 ; --- Game I/O pin assignments (all on PORTB) ---
-PIN_NEWNUM      EQU 5       ; RB5 - NewNumber, input, pulsed by external circuit (stubbed for now)
-PIN_PLAYING     EQU 6       ; RB6 - Playing, input, external circuit signals game stop
-PIN_RANDGEN     EQU 4       ; RB4 - RandomGenerated, output, PIC holds high while waiting on a number
-PIN_RESULT      EQU 7       ; RB7 - ResultPulse, output, stubbed for now
+; All game pins are INPUTS except RB4 which is an OUTPUT driven by the PIC.
+; PORTB is configured fully as input by INIT_RGB (SETF TRISB).
+; INIT_PLAY_GAME carves out RB4 as the only output exception.
+;
+;   RB4 PIN_RANDGEN  OUTPUT  PIC drives HIGH after placing a number on RC0-3 and 7-seg.
+;                            Held high until RB5 (NewNumber) confirms reception.
+;                            Dropped LOW before generating the next number.
+;                            TEST MODE: externally driven button simulates this pin.
+;
+;   RB5 PIN_NEWNUM   INPUT   External circuit pulses HIGH to tell PIC to generate
+;                            the next number (confirms previous number was received).
+;
+;   RB6 PIN_PLAYING  INPUT   External circuit drives HIGH when it takes over and
+;                            starts its own play phase. Stops PIC number generation.
+;
+;   RB7 PIN_RESULT   INPUT   External circuit drives this. Reserved for result/scoring
+;                            phase. Stubbed - not yet read by game logic.
+
+PIN_RANDGEN     EQU 4
+PIN_NEWNUM      EQU 5
+PIN_PLAYING     EQU 6
+PIN_RESULT      EQU 7
 
 ;######################### BASE_CODE #########################
 
@@ -105,7 +121,7 @@ INIT_RGB
    ANDLW    b'00011111' ; Clear RGB indicators on boot
    MOVWF    LATC, 0
 
-   SETF     TRISB,0    ; PORTB input
+   SETF     TRISB,0    ; PORTB fully input (game pins RB5/RB6/RB7 stay input here)
    BCF      INTCON2, RBPU,0   ; enable PORTB pull-ups
    MOVLW    0x02
    MOVWF    MENU_ID, 0
@@ -117,24 +133,21 @@ INIT_PLAY_GAME
     MOVWF   TRISA, 0
     BCF     LATA, 4, 0
 
-    ; --- Configure PORTC cleanly without overwriting RC4 ---
-    BCF     TRISC, 0, 0     ; Set RC0 as output (RandomNumber bit 0)
-    BCF     TRISC, 1, 0     ; Set RC1 as output (RandomNumber bit 1)
-    BCF     TRISC, 2, 0     ; Set RC2 as output (RandomNumber bit 2)
-    BCF     TRISC, 3, 0     ; Set RC3 as output (RandomNumber bit 3)
+    ; --- Configure PORTC lower nibble as outputs for 4-bit binary number ---
+    BCF     TRISC, 0, 0     ; RC0 = RandomNumber bit 0
+    BCF     TRISC, 1, 0     ; RC1 = RandomNumber bit 1
+    BCF     TRISC, 2, 0     ; RC2 = RandomNumber bit 2
+    BCF     TRISC, 3, 0     ; RC3 = RandomNumber bit 3
 
     ; Clear only the lower 4 bits of LATC, preserve the servo pin state
     MOVF    LATC, W, 0
-    ANDLW   b'11110000'     ; Clears lower 4 bits, leaves RC4 state exactly as it was
+    ANDLW   b'11110000'
     MOVWF   LATC, 0
 
-    ; --- Configure game handshake pins on PORTB ---
-    ; RB5 (NewNumber) and RB6 (Playing) stay inputs (PORTB defaults to input from INIT_RGB)
-    ; RB4 (RandomGenerated) and RB7 (ResultPulse) are outputs
+    ; --- RB4 (PIN_RANDGEN) is the only PORTB output ---
+    ; All other game pins (RB5/RB6/RB7) remain inputs from SETF TRISB above
     BCF     TRISB, PIN_RANDGEN, 0
-    BCF     TRISB, PIN_RESULT, 0
-    BCF     LATB, PIN_RANDGEN, 0
-    BCF     LATB, PIN_RESULT, 0
+    BCF     LATB, PIN_RANDGEN, 0    ; start low
 
     MOVLW   0xA5            
     MOVWF   RNG_SEED, 0
@@ -142,13 +155,13 @@ INIT_PLAY_GAME
     RETURN
    
 
-; --- NEW NON-BLOCKING EDGE TRIGGER MECHANISM ---
+; --- NON-BLOCKING EDGE TRIGGER MECHANISM ---
 MENU_BUTTON_CHECK
    ; STEP 1: Verify if all buttons are back in their IDLE released states
    ; RB0=1 (High), RB1=1 (High), RB2=0 (Low). Idle pattern = b'011' (RB2:RB1:RB0)
    MOVF     PORTB, W, 0
    ANDLW    b'00000111'       ; Check bits 0,1,2 (Left, Right, Select)
-   XORLW    b'00000011'       ; Idle pattern: RB0=1,RB1=1,RB2=0 -> 011
+   XORLW    b'00000011'       ; Idle: RB0=1, RB1=1, RB2=0 -> 011
    BTFSC    STATUS, Z, 0
    CLRF     BTN_STATE, 0      ; Clears memory lock register once ALL buttons are released
 
@@ -168,37 +181,32 @@ MENU_BUTTON_CHECK
 
 CH_LEFT_EDGE
    CALL     WAIT_DEBOUNCE
-   BTFSC    PORTB, 0, 0       ; Verify button is still physically low
-   RETURN                     ; Was noise, drop out
+   BTFSC    PORTB, 0, 0
+   RETURN
    MOVLW    0x01
-   MOVWF    BTN_STATE, 0      ; Lock button processing latch
+   MOVWF    BTN_STATE, 0
    GOTO     MENU_LEFT
 
 CH_RIGHT_EDGE
    CALL     WAIT_DEBOUNCE
-   BTFSC    PORTB, 1, 0       ; Verify button is still physically low
+   BTFSC    PORTB, 1, 0
    RETURN
    MOVLW    0x01
-   MOVWF    BTN_STATE, 0      ; Lock button processing latch
+   MOVWF    BTN_STATE, 0
    GOTO     MENU_RIGHT
 
 CH_SELECT_EDGE
    CALL     WAIT_DEBOUNCE
-   BTFSS    PORTB, 2, 0       ; Verify button is still physically high
+   BTFSS    PORTB, 2, 0
    RETURN
    MOVLW    0x01
-   MOVWF    BTN_STATE, 0      ; Lock button processing latch
+   MOVWF    BTN_STATE, 0
    GOTO     SELECT_PRESS
 
 
 MENU_LEFT
-    ; 1. Clear RA4 on PORTA
     BCF     LATA, 4, 0      
-
-    ; 2. Clear 7-Segment display on PORTD
     CLRF    LATD, 0
-
-    ; If the game was active, fully stop it so leaving the menu can't leave it running
     CALL    STOP_PLAY_GAME
 
     MOVF    MENU_ID,W,0
@@ -215,13 +223,8 @@ SKIP_DECREMENT
   
    
 MENU_RIGHT 
-    ; 1. Clear RA4 on PORTA
     BCF     LATA, 4, 0      
-
-    ; 2. Clear 7-Segment display on PORTD
     CLRF    LATD, 0
-
-    ; If the game was active, fully stop it so leaving the menu can't leave it running
     CALL    STOP_PLAY_GAME
 
     MOVLW   0x02
@@ -242,7 +245,6 @@ SELECT_PRESS
    SUBWF    MENU_ID, W, 0
    BTFSS    STATUS, Z, 0
    RETURN
-
    CALL     START_PLAY_GAME
    RETURN
 
@@ -270,70 +272,90 @@ RGB_0
    BSF  LATC,7,0
    RETURN
 
-; ######################### PLAY GAME (Memory Game / External IC) #########################
+; ######################### PLAY GAME #########################
 ;
-; Pin map (all on PORTB):
-;   RB4 PIN_RANDGEN  - output. Held HIGH while a number is on display, waiting to be
-;                       acknowledged/consumed. Dropped LOW right before the next number
-;                       is generated.
-;   RB5 PIN_NEWNUM   - input. External circuit pulses this to request the next number.
-;                       STUBBED: not yet polled. A fixed ~1s wait is used instead, so the
-;                       cycle can be tested standalone. Swap-in point is marked below.
-;   RB6 PIN_PLAYING  - input. External circuit drives this HIGH once it has taken over /
-;                       finished, which stops the generate loop entirely.
-;   RB7 PIN_RESULT   - output. STUBBED: reserved for pulsing the result once scoring is
-;                       added. Left LOW for now, never written elsewhere.
-;
-; RandomNumber nibble -> RC0-3 (already configured as outputs in INIT_PLAY_GAME)
-; 7-segment equivalent -> RD0-6 via DISPLAY_7SEG (unchanged)
-;
-; NOTE: numbers generated for THIS game are NOT clamped to 0-9 like the old flash code did -
-; the spec calls for a 4-bit number (0-15) since it's being driven out on 4 raw bits, not
-; just decoded to a single 7-seg digit. SEGMENT_TABLE already has entries up to 0xF.
+; Cycle (event-driven, no timer wait):
+;   1. Generate number 0-9
+;   2. Output binary on RC0-3, decoded on 7-segment RD0-6
+;   3. Drive RB4 (PIN_RANDGEN) HIGH - "number ready"
+;   4. Poll RB5 (PIN_NEWNUM): wait for external circuit to pulse HIGH
+;      confirming it received the number
+;   5. Drop RB4 LOW, go to step 1
+;   Stop condition: RB6 (PIN_PLAYING) goes HIGH at any point ->
+;      blank outputs, drop RB4, return to idle
 
 START_PLAY_GAME
     MOVLW   0x01
     MOVWF   GAME_ACTIVE, 0
-    BCF     LATB, PIN_RANDGEN, 0   ; ensure RandomGenerated starts low
+    BCF     LATB, PIN_RANDGEN, 0
     CALL    PLAY_GAME_NEXT_NUMBER
     RETURN
 
-; Stops the game cleanly: clears state, drops RandomGenerated, blanks the 7-seg and RC0-3.
-; Safe to call even if the game isn't active.
+; Stops the game: clears state, drops RB4, blanks 7-seg and RC0-3.
+; Safe to call even if game is not active.
 STOP_PLAY_GAME
     CLRF    GAME_ACTIVE, 0
     BCF     LATB, PIN_RANDGEN, 0
-
-    CLRF    LATD, 0                ; blank 7-segment
-
-    MOVF    LATC, W, 0             ; blank RC0-3 only, preserve RC4-7 (servo + RGB)
-    ANDLW   b'11110000'
+    CLRF    LATD, 0
+    MOVF    LATC, W, 0
+    ANDLW   b'11110000'             ; blank RC0-3, preserve RC4-7
     MOVWF   LATC, 0
     RETURN
 
-; Generates one number, drives it out on RC0-3 and the 7-segment, then raises
-; PIN_RANDGEN to signal "number ready, waiting for acknowledgement".
+; Generates one number, drives RC0-3 and 7-segment, raises RB4.
 PLAY_GAME_NEXT_NUMBER
     CALL    UPDATE_RNG
     MOVF    RNG_SEED, W, 0
     ANDLW   0x0F
-    MOVWF   RANDOM_NUM, 0          ; full 4-bit range (0-15), no clamping
+    MOVWF   RANDOM_NUM, 0
 
-    ; --- Output raw binary on RC0-3 ---
+    ; Clamp to 0-9 (digit game)
+    MOVLW   .10
+    SUBWF   RANDOM_NUM, W, 0
+    BTFSS   STATUS, C, 0
+    BRA     PGN_VALID
+    MOVLW   .10
+    SUBWF   RANDOM_NUM, F, 0
+PGN_VALID
+    ; Output raw binary on RC0-3, preserve RC4-7
     MOVF    LATC, W, 0
-    ANDLW   b'11110000'            ; preserve RC4-7 (servo + RGB), clear RC0-3
-    IORWF   RANDOM_NUM, W, 0       ; RANDOM_NUM is already masked to 4 bits, safe to OR in directly
+    ANDLW   b'11110000'
+    IORWF   RANDOM_NUM, W, 0
     MOVWF   LATC, 0
 
-    ; --- Output 7-segment equivalent on RD0-6 ---
+    ; Output 7-segment on RD0-6
     CALL    DISPLAY_7SEG
 
-    ; --- Signal RandomGenerated: number is ready, waiting on acknowledgement ---
+    ; Signal number ready
     BSF     LATB, PIN_RANDGEN, 0
+    RETURN
 
-    ; --- Reset the stand-in wait counter (swap point for real NewNumber pulse later) ---
-    MOVLW   0x02
-    MOVWF   GAME_WAIT_CNT, 0
+; Called every main loop pass while GAME_ACTIVE=1.
+; Checks stop condition (RB6) first, then polls for NewNumber (RB5).
+GAME_TICK
+    MOVF    GAME_ACTIVE, W, 0
+    BZ      GAME_TICK_DONE
+
+    ; RB6 HIGH: external circuit has started playing, stop generation
+    BTFSC   PORTB, PIN_PLAYING, 0
+    GOTO    GAME_TICK_STOP
+
+    ; RB5 HIGH: external circuit acknowledged last number, generate next
+    BTFSC   PORTB, PIN_NEWNUM, 0
+    GOTO    GAME_TICK_NEXT
+
+    RETURN                          ; neither signal yet, keep waiting
+
+GAME_TICK_NEXT
+    BCF     LATB, PIN_RANDGEN, 0    ; drop RandomGenerated before new number
+    CALL    PLAY_GAME_NEXT_NUMBER
+    GOTO    GAME_TICK_DONE
+
+GAME_TICK_STOP
+    CALL    STOP_PLAY_GAME
+    ; RB7 (ResultPulse) read/scoring logic goes here when added
+
+GAME_TICK_DONE
     RETURN
 
 DISPLAY_7SEG
@@ -347,59 +369,27 @@ DISPLAY_7SEG
     MOVF    RANDOM_NUM, W, 0
     ADDWF   TBLPTRL, F, 0
     MOVLW   0
-    ADDWFC  TBLPTRH, F, 0       ; Carry tracking
+    ADDWFC  TBLPTRH, F, 0
 
     TBLRD* 
     MOVF    TABLAT, W, 0
-    MOVWF   LATD, 0            ; Push exact illumination array directly out of PORTD
+    MOVWF   LATD, 0
     RETURN
 
 UPDATE_RNG
-    MOVF    SEC_COUNTER, W, 0   ; use SEC_COUNTER instead - changes every second
-    XORWF   RNG_SEED, W, 0      ; XOR with running seed for extra mixing
+    MOVF    SEC_COUNTER, W, 0
+    XORWF   RNG_SEED, W, 0
     MULLW   .7
     RRNCF   PRODL, F, 0
     RRNCF   PRODL, W, 0
     MOVWF   RNG_SEED, 0
     RETURN
-
-; Called once per ~0.5s TMR0 tick from the main loop while GAME_ACTIVE=1.
-; Checks PIN_PLAYING first (stop condition always wins), then counts down the
-; stand-in wait before moving to the next number.
-GAME_TICK
-    MOVF    GAME_ACTIVE, W, 0
-    BZ      GAME_TICK_DONE
-
-    ; Playing going HIGH stops the game outright, regardless of wait state
-    BTFSC   PORTB, PIN_PLAYING, 0
-    GOTO    GAME_TICK_STOP
-
-    ; --- STUB: waiting for NewNumber (RB5) goes here instead of the timed wait. ---
-    ; To switch over later, replace the DECFSZ/GOTO pair below with:
-    ;   BTFSS   PORTB, PIN_NEWNUM, 0
-    ;   RETURN
-    ;   BCF     LATB, PIN_RANDGEN, 0
-    ;   CALL    PLAY_GAME_NEXT_NUMBER
-    DECFSZ  GAME_WAIT_CNT, 1, 0
-    GOTO    GAME_TICK_DONE
-
-    BCF     LATB, PIN_RANDGEN, 0
-    CALL    PLAY_GAME_NEXT_NUMBER
-    GOTO    GAME_TICK_DONE
-
-GAME_TICK_STOP
-    CALL    STOP_PLAY_GAME
-    ; Result pulse (RB7) intentionally not driven yet - add scoring/result logic here later.
-
-GAME_TICK_DONE
-    RETURN
    
 ; ######################### LED_MATRIX #########################
 
 INIT_LM
-    ; Initialize PORTE for driving the grid
-    BCF     TRISE, GRID_PIN, 0   ; Set RE0 as Output
-    BCF     LATE, GRID_PIN, 0    ; Clear grid output line
+    BCF     TRISE, GRID_PIN, 0
+    BCF     LATE, GRID_PIN, 0
     CALL    INIT_TAMAGOTCHI
     CALL    REFRESH_GAME_FRAME
     RETURN
@@ -413,7 +403,6 @@ INIT_TAMAGOTCHI
     RETURN
 
 INIT_SERVO
-    ; Configure RC4 as output for driving the Servomotor
     BCF     TRISC, SERVO_PIN, 0  
     BCF     LATC, SERVO_PIN, 0   
     CLRF    SERVO_FRAME_CNT, 0
@@ -525,7 +514,7 @@ SEND_BIT
     BTFSS   BYTE_BUFF, 7, 0   
     GOTO    BIT_IS_ZERO       
 
-    BSF     LATE, GRID_PIN, 0       ; Send Data via RE0
+    BSF     LATE, GRID_PIN, 0
     NOP                       
     NOP                       
     NOP                       
@@ -589,10 +578,8 @@ RECALC_SERVO_TARGET
     MOVF    AGE_COUNTER, W, 0
     MULLW   .23             
 
-    ; Securely clear Carry flag before running addition math
     BCF     STATUS, C, 0
 
-    ; Base count offset updated to .1200 (~1.5ms Center Position at 32MHz)
     MOVLW   LOW(.1200)
     ADDWF   PRODL, W, 0         
     MOVWF   SERVO_TARGET_L, 0    
@@ -643,7 +630,10 @@ MAIN
     CALL RECALC_SERVO_TARGET    
 
 LOOP
-    ; --- INTERRUPT POLLING ENGINE ---
+    ; --- GAME TICK: event-driven, runs every loop pass (not timer-gated) ---
+    CALL    GAME_TICK
+
+    ; --- TIMER POLLING ENGINE ---
     BTFSS   INTCON, T0IF, 0
     GOTO    SKIP_CLOCK_TICK
     
@@ -654,9 +644,6 @@ LOOP
     BCF     INTCON, T0IF, 0     
     
     INCF    SEC_COUNTER, 1, 0
-
-    ; --- GAME ENGINE (runs every ~0.5s tick) ---
-    CALL    GAME_TICK
 
     MOVLW   .60
     SUBWF   SEC_COUNTER, W, 0
