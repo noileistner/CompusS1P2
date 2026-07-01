@@ -54,6 +54,9 @@ RNG_SEED        EQU 0x35    ; running LFSR state
 RANDOM_NUM      EQU 0x36    ; latest generated 4-bit number (0-9)
 BTN_STATE       EQU 0x37    ; Latch tracking register: 0=None pressed, 1=Handled
 GAME_ACTIVE     EQU 0x38    ; 1 = game running, 0 = idle
+NEWNUM_LAST     EQU 0x39    ; NEW: Tracks previous state of RB5 (0=Low, 1=High)
+     
+LATA_SHADOW  EQU 0x3A   ; This is your "memory" of what LATA should be
 
 ; --- Game I/O pin assignments (all on PORTB) ---
 ; All game pins are INPUTS except RB4 which is an OUTPUT driven by the PIC.
@@ -129,29 +132,37 @@ INIT_RGB
    RETURN
 
 INIT_PLAY_GAME
-    MOVLW   b'11101111'     
+   ;make A digital
+    MOVLW   0x0F            ; Value to make all A/D pins digital
+    MOVWF   ADCON1, 0       ; Write to ADCON1 register
+   
+   MOVLW   b'11101111'     
     MOVWF   TRISA, 0
     BCF     LATA, 4, 0
 
-    ; --- Configure PORTC lower nibble as outputs for 4-bit binary number ---
-    BCF     TRISC, 0, 0     ; RC0 = RandomNumber bit 0
-    BCF     TRISC, 1, 0     ; RC1 = RandomNumber bit 1
-    BCF     TRISC, 2, 0     ; RC2 = RandomNumber bit 2
-    BCF     TRISC, 3, 0     ; RC3 = RandomNumber bit 3
+    ; --- Configure PORTA lower nibble as outputs for 4-bit binary number ---
+    BCF     TRISA, 0, 0     ; RC0 = RandomNumber bit 0
+    BCF     TRISA, 1, 0     ; RC1 = RandomNumber bit 1
+    BCF     TRISA, 2, 0     ; RC2 = RandomNumber bit 2
+    BCF     TRISA, 3, 0     ; RC3 = RandomNumber bit 3
 
-    ; Clear only the lower 4 bits of LATC, preserve the servo pin state
-    MOVF    LATC, W, 0
+    ; Clear only the lower 4 bits of LATA
+    MOVF    LATA, W, 0
     ANDLW   b'11110000'
-    MOVWF   LATC, 0
+    MOVWF   LATA, 0
+    
+    
 
     ; --- RB4 (PIN_RANDGEN) is the only PORTB output ---
     ; All other game pins (RB5/RB6/RB7) remain inputs from SETF TRISB above
-    BCF     TRISB, PIN_RANDGEN, 0
-    BCF     LATB, PIN_RANDGEN, 0    ; start low
+    ;BCF     TRISB, PIN_RANDGEN, 0
+    ;BCF     LATB, PIN_RANDGEN, 0    ; start low
 
     MOVLW   0xA5            
     MOVWF   RNG_SEED, 0
     CLRF    GAME_ACTIVE, 0
+    CLRF    NEWNUM_LAST, 0
+    
     RETURN
    
 
@@ -287,7 +298,7 @@ RGB_0
 START_PLAY_GAME
     MOVLW   0x01
     MOVWF   GAME_ACTIVE, 0
-    BCF     LATB, PIN_RANDGEN, 0
+    ;BCF     LATB, PIN_RANDGEN, 0
     CALL    PLAY_GAME_NEXT_NUMBER
     RETURN
 
@@ -295,11 +306,12 @@ START_PLAY_GAME
 ; Safe to call even if game is not active.
 STOP_PLAY_GAME
     CLRF    GAME_ACTIVE, 0
-    BCF     LATB, PIN_RANDGEN, 0
+    ;BCF     LATB, PIN_RANDGEN, 0
     CLRF    LATD, 0
-    MOVF    LATC, W, 0
+    
+    MOVF    LATA, W, 0
     ANDLW   b'11110000'             ; blank RC0-3, preserve RC4-7
-    MOVWF   LATC, 0
+    MOVWF   LATA, 0
     RETURN
 
 ; Generates one number, drives RC0-3 and 7-segment, raises RB4.
@@ -318,16 +330,17 @@ PLAY_GAME_NEXT_NUMBER
     SUBWF   RANDOM_NUM, F, 0
 PGN_VALID
     ; Output raw binary on RC0-3, preserve RC4-7
-    MOVF    LATC, W, 0
-    ANDLW   b'11110000'
-    IORWF   RANDOM_NUM, W, 0
-    MOVWF   LATC, 0
+    MOVF    LATA_SHADOW, W, 0   ; 1. Look at your "Post-it Note"
+    ANDLW   b'11110000'         ; 2. Clear the old number
+    IORWF   RANDOM_NUM, W, 0    ; 3. Add the new number
+    MOVWF   LATA_SHADOW, 0      ; 4. Save the new state to your "Post-it Note"
+    MOVWF   LATA, 0             ; 5. Push that exact state to the physical pins
 
     ; Output 7-segment on RD0-6
     CALL    DISPLAY_7SEG
 
     ; Signal number ready
-    BSF     LATB, PIN_RANDGEN, 0
+    ;BSF     LATB, PIN_RANDGEN, 0
     RETURN
 
 ; Called every main loop pass while GAME_ACTIVE=1.
@@ -340,14 +353,26 @@ GAME_TICK
     BTFSC   PORTB, PIN_PLAYING, 0
     GOTO    GAME_TICK_STOP
 
-    ; RB5 HIGH: external circuit acknowledged last number, generate next
-    BTFSC   PORTB, PIN_NEWNUM, 0
-    GOTO    GAME_TICK_NEXT
+    ; --- EDGE DETECTION FOR RB5 (PIN_NEWNUM) ---
+    BTFSS   PORTB, PIN_NEWNUM, 0
+    GOTO    RB5_IS_LOW          ; Pin is currently LOW
 
-    RETURN                          ; neither signal yet, keep waiting
+RB5_IS_HIGH
+    ; Pin is currently HIGH. Check what it was last loop.
+    MOVF    NEWNUM_LAST, W, 0
+    BNZ     GAME_TICK_DONE      ; If it was already HIGH, do nothing (keep waiting)
+    
+    ; If we get here, it was LOW and is now HIGH (Rising Edge!)
+    MOVLW   0x01
+    MOVWF   NEWNUM_LAST, 0      ; Lock the latch so it won't trigger again
+    GOTO    GAME_TICK_NEXT      ; Go generate the next number
+
+RB5_IS_LOW
+    ; Pin is currently LOW. Reset our tracking latch.
+    CLRF    NEWNUM_LAST, 0
+    GOTO    GAME_TICK_DONE      ; Keep waiting
 
 GAME_TICK_NEXT
-    BCF     LATB, PIN_RANDGEN, 0    ; drop RandomGenerated before new number
     CALL    PLAY_GAME_NEXT_NUMBER
     GOTO    GAME_TICK_DONE
 
