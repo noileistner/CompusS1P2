@@ -106,54 +106,61 @@ INIT_RGB
    CLRF     BTN_STATE, 0      ; Start unlatched
    RETURN
 
-; --- NEW NON-BLOCKING EDGE TRIGGER MECHANISM ---
+   
+; ######################### MENU_BUTTON_CHECK (all buttons negative logic) #########################
+; RB0 = Left  (active low)
+; RB1 = Right (active low)
+; RB2 = Select (NOW active low - previously active high)
+ 
 MENU_BUTTON_CHECK
-   ; STEP 1: Verify if all buttons are back in their IDLE released states
-   ; RB0=1 (High), RB1=1 (High), RB2=0 (Low). Mask pattern target = b'00000011'
+   ; STEP 1: Verify all buttons are back in their IDLE (released) states.
+   ; All three are now active-low, so idle = all HIGH.
+   ; Mask pattern target = b'00000111' (RB0, RB1, RB2 all 1)
    MOVF     PORTB, W, 0
-   ANDLW    b'00000011'       ; Check only lower 3 bits
-   XORLW    b'00000011'       ; If matches idle state perfectly, working bits flip to zero
+   ANDLW    b'00000111'       ; Check lower 3 bits
+   XORLW    b'00000111'       ; If matches idle state perfectly, working bits flip to zero
    BTFSC    STATUS, Z, 0
    CLRF     BTN_STATE, 0      ; Clears memory lock register once buttons are released
-
+ 
    ; STEP 2: If an operation is currently locked, skip reading inputs entirely
    MOVF     BTN_STATE, W, 0
    BTFSS    STATUS, Z, 0
-   RETURN                     
-
+   RETURN
+ 
    ; STEP 3: Detect initial down-press thresholds
    BTFSS    PORTB, 0, 0       ; Left Key (Active Low: looking for a 0)
    GOTO     CH_LEFT_EDGE
    BTFSS    PORTB, 1, 0       ; Right Key (Active Low: looking for a 0)
    GOTO     CH_RIGHT_EDGE
-   BTFSC    PORTB, 2, 0       ; Select Key (Active High: looking for a 1)
+   BTFSS    PORTB, 2, 0       ; Select Key (NOW Active Low: looking for a 0)
    GOTO     CH_SELECT_EDGE
    RETURN
-
+ 
 CH_LEFT_EDGE
    CALL     WAIT_DEBOUNCE
    BTFSC    PORTB, 0, 0       ; Verify button is still physically low
-   RETURN                     ; Was noise, drop out
+   RETURN
    MOVLW    0x01
-   MOVWF    BTN_STATE, 0      ; Lock button processing latch
+   MOVWF    BTN_STATE, 0
    GOTO     MENU_LEFT
-
+ 
 CH_RIGHT_EDGE
    CALL     WAIT_DEBOUNCE
    BTFSC    PORTB, 1, 0       ; Verify button is still physically low
    RETURN
    MOVLW    0x01
-   MOVWF    BTN_STATE, 0      ; Lock button processing latch
+   MOVWF    BTN_STATE, 0
    GOTO     MENU_RIGHT
-
+ 
 CH_SELECT_EDGE
    CALL     WAIT_DEBOUNCE
-   BTFSS    PORTB, 2, 0       ; Verify button is still physically high
+   BTFSC    PORTB, 2, 0       ; Verify button is still physically low (was BTFSS/high check before)
    RETURN
    MOVLW    0x01
-   MOVWF    BTN_STATE, 0      ; Lock button processing latch
+   MOVWF    BTN_STATE, 0
    GOTO     SELECT_PRESS
-
+    
+   
 
 MENU_LEFT
     ; 1. Clear RA4 on PORTA
