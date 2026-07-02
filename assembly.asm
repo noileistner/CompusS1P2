@@ -96,74 +96,86 @@ INIT_RGB
    MOVWF    TRISC, 0
    
    MOVF     LATC, W, 0
-   ANDLW    b'00011111' ; Clear RGB indicators on boot
+   ANDLW    b'00011111' ; Clear RGB indicators on boot 
    MOVWF    LATC, 0
 
    SETF     TRISB,0    ; PORTB input
    BCF      INTCON2, RBPU,0   ; enable PORTB pull-ups
-   MOVLW    0x02
+   MOVLW    0x01    ;init state
    MOVWF    MENU_ID, 0
    CLRF     BTN_STATE, 0      ; Start unlatched
    RETURN
 
    
-; ######################### MENU_BUTTON_CHECK (all buttons negative logic) #########################
-; RB0 = Left  (active low)
-; RB1 = Right (active low)
-; RB2 = Select (NOW active low - previously active high)
- 
+; ######################### MENU_BUTTON_CHECK (simplified, independent per-button) #########################
+; RB0 = Left   (active low, idle high)
+; RB1 = Right  (active low, idle high)
+; RB2 = Select (active low, idle high)
+;
+; BTN_STATE is a 3-bit field, one latch bit per button:
+;   bit0 = Left latch, bit1 = Right latch, bit2 = Select latch
+;   1 = currently pressed & already handled, 0 = released / not yet handled
+;
+; Each button is fully independent. A button's own latch only clears
+; when THAT button's pin goes back high - no shared "all idle" gate.
+
 MENU_BUTTON_CHECK
-   ; STEP 1: Verify all buttons are back in their IDLE (released) states.
-   ; All three are now active-low, so idle = all HIGH.
-   ; Mask pattern target = b'00000111' (RB0, RB1, RB2 all 1)
-   MOVF     PORTB, W, 0
-   ANDLW    b'00000011'       ; Check lower 3 bits
-   XORLW    b'00000011'       ; If matches idle state perfectly, working bits flip to zero
-   BTFSC    STATUS, Z, 0
-   CLRF     BTN_STATE, 0      ; Clears memory lock register once buttons are released
- 
-   ; STEP 2: If an operation is currently locked, skip reading inputs entirely
-   MOVF     BTN_STATE, W, 0
-   BTFSS    STATUS, Z, 0
+   ; ---- LEFT (RB0, bit0) ----
+   BTFSS    PORTB, 0, 0        ; pin high (released)? skip if so
+   BRA      LEFT_PRESSED       ; pin is low -> button currently pressed
+   BCF      BTN_STATE, 0, 0    ; released -> clear latch
+   BRA      RIGHT_CHECK
+LEFT_PRESSED
+   BTFSC    BTN_STATE, 0, 0    ; already latched (handled this press)?
+   BRA      RIGHT_CHECK        ; yes -> nothing to do
+   CALL     CH_LEFT_EDGE
+
+RIGHT_CHECK
+   ; ---- RIGHT (RB1, bit1) ----
+   BTFSS    PORTB, 1, 0
+   BRA      RIGHT_PRESSED
+   BCF      BTN_STATE, 1, 0
+   BRA      SELECT_CHECK
+RIGHT_PRESSED
+   BTFSC    BTN_STATE, 1, 0
+   BRA      SELECT_CHECK
+   CALL     CH_RIGHT_EDGE
+
+SELECT_CHECK
+   ; ---- SELECT (RB2, bit2) ----
+   BTFSS    PORTB, 2, 0
+   BRA      SELECT_PRESSED
+   BCF      BTN_STATE, 2, 0
    RETURN
- 
-   ; STEP 3: Detect initial down-press thresholds
-   BTFSS    PORTB, 0, 0       ; Left Key (Active Low: looking for a 0)
-   GOTO     CH_LEFT_EDGE
-   BTFSS    PORTB, 1, 0       ; Right Key (Active Low: looking for a 0)
-   GOTO     CH_RIGHT_EDGE
-   BTFSS    PORTB, 2, 0       ; Select Key (NOW Active Low: looking for a 0)
-   GOTO     CH_SELECT_EDGE
+SELECT_PRESSED
+   BTFSC    BTN_STATE, 2, 0
    RETURN
- 
+   CALL     CH_SELECT_EDGE
+   RETURN
+
 CH_LEFT_EDGE
    CALL     WAIT_DEBOUNCE
-   BTFSC    PORTB, 0, 0       ; Verify button is still physically low
-   RETURN
-   MOVLW    0x01
-   MOVWF    BTN_STATE, 0
+   BTFSC    PORTB, 0, 0        ; still low after debounce?
+   RETURN                      ; no - was noise
+   BSF      BTN_STATE, 0, 0    ; latch left as handled
    GOTO     MENU_LEFT
- 
+
 CH_RIGHT_EDGE
    CALL     WAIT_DEBOUNCE
-   BTFSC    PORTB, 1, 0       ; Verify button is still physically low
+   BTFSC    PORTB, 1, 0
    RETURN
-   MOVLW    0x01
-   MOVWF    BTN_STATE, 0
+   BSF      BTN_STATE, 1, 0
    GOTO     MENU_RIGHT
- 
+
 CH_SELECT_EDGE
    CALL     WAIT_DEBOUNCE
-   BTFSC    PORTB, 2, 0       ; Verify button is still physically low (was BTFSS/high check before)
+   BTFSC    PORTB, 2, 0
    RETURN
-   MOVLW    0x01
-   MOVWF    BTN_STATE, 0
+   BSF      BTN_STATE, 2, 0
    GOTO     SELECT_PRESS
-    
-   
 
-MENU_LEFT
-        
+
+MENU_LEFT     
 
     ; 2. Clear 7-Segment display on PORTD
     CLRF    LATD, 0
@@ -181,8 +193,8 @@ SKIP_DECREMENT
     RETURN
   
    
-MENU_RIGHT 
-    
+MENU_RIGHT    
+
     ; 2. Clear 7-Segment display on PORTD
     CLRF    LATD, 0
 
@@ -701,7 +713,7 @@ SKIP_CLOCK_TICK
     CALL    POLL_NEW_NUMBER_BUTTON
 
     GOTO LOOP
-
+ 
 ; ######################### PERMANENT DEATH TRAP #########################
 DEATH_STATE
     GOTO    DEATH_STATE
