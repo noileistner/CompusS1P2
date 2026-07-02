@@ -117,8 +117,8 @@ MENU_BUTTON_CHECK
    ; All three are now active-low, so idle = all HIGH.
    ; Mask pattern target = b'00000111' (RB0, RB1, RB2 all 1)
    MOVF     PORTB, W, 0
-   ANDLW    b'00000111'       ; Check lower 3 bits
-   XORLW    b'00000111'       ; If matches idle state perfectly, working bits flip to zero
+   ANDLW    b'00000011'       ; Check lower 3 bits
+   XORLW    b'00000011'       ; If matches idle state perfectly, working bits flip to zero
    BTFSC    STATUS, Z, 0
    CLRF     BTN_STATE, 0      ; Clears memory lock register once buttons are released
  
@@ -163,8 +163,7 @@ CH_SELECT_EDGE
    
 
 MENU_LEFT
-    ; 1. Clear RA4 on PORTA
-    BCF     LATA, 4, 0      
+        
 
     ; 2. Clear 7-Segment display on PORTD
     CLRF    LATD, 0
@@ -183,9 +182,7 @@ SKIP_DECREMENT
   
    
 MENU_RIGHT 
-    ; 1. Clear RA4 on PORTA
-    BCF     LATA, 4, 0      
-
+    
     ; 2. Clear 7-Segment display on PORTD
     CLRF    LATD, 0
 
@@ -635,7 +632,7 @@ MAIN
     CALL INIT_TIMER0
     CALL INIT_SERVO
     
-    ;CALL INIT_PLAY_GAME
+    CALL INIT_PLAY_GAME
     CALL RECALC_SERVO_TARGET
 
 LOOP
@@ -700,8 +697,8 @@ SKIP_CLOCK_TICK
     CALL    SEND_FRAME_FROM_RAM
     BSF     INTCON, GIE, 0
 
-    ;CALL    MENU_BUTTON_CHECK
-    ;CALL    POLL_NEW_NUMBER_BUTTON
+    CALL    MENU_BUTTON_CHECK
+    CALL    POLL_NEW_NUMBER_BUTTON
 
     GOTO LOOP
 
