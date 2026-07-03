@@ -477,25 +477,333 @@ DISPLAY_TOKEN
     MOVF    TABLAT, W, 0
     MOVWF   LATD, 0
     RETURN
+; ######################### --- old modules (age, led, motor) --- #########################
+    
+; ####### age
+  ; ---- extra vars (put with your other EQUs) ----
+SEC_COUNTER     EQU 0x50    ; ticks 0-59
+AGE_COUNTER     EQU 0x51    ; 0,10,20...100
+SHAPE_STATE     EQU 0x52    ; 0 baby / 1 adult / 2 old
+HEALTH_STATE    EQU 0x53    ; 0 green / 1 yellow / 2 red
+MS_ACC          EQU 0x54    ; counts MS_TICK_FLAG events up to 1000 (needs 2 bytes if you want exact 1000; see note)
+MS_ACC_H        EQU 0x55
 
+INIT_TAMAGOTCHI
+    CLRF    SEC_COUNTER, 0
+    CLRF    AGE_COUNTER, 0
+    CLRF    SHAPE_STATE, 0
+    CLRF    HEALTH_STATE, 0
+    CLRF    MS_ACC, 0
+    CLRF    MS_ACC_H, 0
+    RETURN
+
+; Call this once per LOOP pass. Only does work when MS_TICK_FLAG is set,
+; so it costs ~nothing on passes where no ms has elapsed.
+SERVICE_AGE_ENGINE
+    BTFSS   MS_TICK_FLAG, 0, 0
+    RETURN
+    BCF     MS_TICK_FLAG, 0, 0
+
+    INFSNZ  MS_ACC, 1, 0
+    INCF    MS_ACC_H, 1, 0
+
+    ; check MS_ACC:MS_ACC_H == 1000
+    MOVLW   LOW(.1000)
+    XORWF   MS_ACC, W, 0
+    BTFSS   STATUS, Z, 0
+    RETURN
+    MOVLW   HIGH(.1000)
+    XORWF   MS_ACC_H, W, 0
+    BTFSS   STATUS, Z, 0
+    RETURN
+
+    ; one second elapsed
+    CLRF    MS_ACC, 0
+    CLRF    MS_ACC_H, 0
+    INCF    SEC_COUNTER, 1, 0
+
+    MOVLW   .60
+    SUBWF   SEC_COUNTER, W, 0
+    BTFSS   STATUS, Z, 0
+    RETURN
+
+    CLRF    SEC_COUNTER, 0
+    MOVLW   .10
+    ADDWF   AGE_COUNTER, 1, 0
+
+    CALL    RECALC_SERVO_TARGET   ; module 3
+
+    MOVLW   .100
+    SUBWF   AGE_COUNTER, W, 0
+    BTFSC   STATUS, Z, 0
+    GOTO    DEATH_STATE
+
+    MOVLW   .30
+    SUBWF   AGE_COUNTER, W, 0
+    BTFSC   STATUS, C, 0
+    GOTO    AGE_CHECK_OLD
+    CLRF    SHAPE_STATE, 0
+    GOTO    AGE_REFRESH
+
+AGE_CHECK_OLD
+    MOVLW   .60
+    SUBWF   AGE_COUNTER, W, 0
+    BTFSC   STATUS, C, 0
+    GOTO    AGE_SET_OLD
+    MOVLW   .1
+    MOVWF   SHAPE_STATE, 0
+    GOTO    AGE_REFRESH
+
+AGE_SET_OLD
+    MOVLW   .2
+    MOVWF   SHAPE_STATE, 0
+
+AGE_REFRESH
+    CALL    REFRESH_GAME_FRAME
+    RETURN  
+    
+; ######## LED Matrix
+    
+; ---- vars ----
+BYTE_BUFF       EQU 0x60
+BIT_COUNT       EQU 0x61
+LED_COUNT       EQU 0x62
+RESET_COUNT     EQU 0x63
+FRAME_BUFF      EQU 0x100   ; 64 px * 3 bytes = 192 bytes, pick a free bank
+GRID_PIN        EQU 0       ; RE0
+
+INIT_LM
+    BCF     TRISE, GRID_PIN, 0
+    BCF     LATE, GRID_PIN, 0
+    RETURN
+
+; --- unchanged logic from your original REFRESH_GAME_FRAME / RENDER_LOOP ---
+; (copy verbatim: TBLPTR setup by SHAPE_STATE, RENDER_LOOP, SET_COLOR_*, WRITE_BLANK)
+; This part does no timing-sensitive work, only table reads + RAM writes.
+REFRESH_GAME_FRAME
+    MOVLW    .0
+    CPFSEQ   SHAPE_STATE, 0
+    BRA      TRY_ADULT_PTR
+
+    MOVLW    UPPER(IMAGE_BABY)
+    MOVWF    TBLPTRU, 0
+    MOVLW    HIGH(IMAGE_BABY)
+    MOVWF    TBLPTRH, 0
+    MOVLW    LOW(IMAGE_BABY)
+    MOVWF    TBLPTRL, 0
+    BRA      START_RAM_RENDER
+
+TRY_ADULT_PTR
+    MOVLW    .1
+    CPFSEQ   SHAPE_STATE, 0
+    BRA      LOAD_OLD_PTR
+
+    MOVLW    UPPER(IMAGE_ADULT)
+    MOVWF    TBLPTRU, 0
+    MOVLW    HIGH(IMAGE_ADULT)
+    MOVWF    TBLPTRH, 0
+    MOVLW    LOW(IMAGE_ADULT)
+    MOVWF    TBLPTRL, 0
+    BRA      START_RAM_RENDER
+
+LOAD_OLD_PTR
+    MOVLW    UPPER(IMAGE_OLD)
+    MOVWF    TBLPTRU, 0
+    MOVLW    HIGH(IMAGE_OLD)
+    MOVWF    TBLPTRH, 0
+    MOVLW    LOW(IMAGE_OLD)
+    MOVWF    TBLPTRL, 0
+
+START_RAM_RENDER
+   MOVLW    HIGH(FRAME_BUFF)
+   MOVWF    FSR0H, 0
+   MOVLW    LOW(FRAME_BUFF)
+   MOVWF    FSR0L, 0
+
+   MOVLW    .64
+   MOVWF    LED_COUNT, 0
+
+RENDER_LOOP
+   TBLRD*+
+   MOVF     TABLAT, W, 0
+   BZ       WRITE_BLANK
+
+   MOVF     HEALTH_STATE, W, 0
+   BZ       SET_COLOR_GREEN
+   DECFSZ   WREG, 1, 0
+   GOTO     SET_COLOR_RED
+
+SET_COLOR_YELLOW
+   MOVLW    0x20
+   MOVWF    POSTINC0, 0
+   MOVLW    0x20
+   MOVWF    POSTINC0, 0
+   CLRF     POSTINC0, 0
+   GOTO     NEXT_PIXEL
+
+SET_COLOR_GREEN
+   MOVLW    0x30
+   MOVWF    POSTINC0, 0
+   CLRF     POSTINC0, 0
+   CLRF     POSTINC0, 0
+   GOTO     NEXT_PIXEL
+
+SET_COLOR_RED
+   CLRF     POSTINC0, 0
+   MOVLW    0x30
+   MOVWF    POSTINC0, 0
+   CLRF     POSTINC0, 0
+   GOTO     NEXT_PIXEL
+
+WRITE_BLANK
+   CLRF     POSTINC0, 0
+   CLRF     POSTINC0, 0
+   CLRF     POSTINC0, 0
+
+NEXT_PIXEL
+   DECFSZ   LED_COUNT, 1, 0
+   GOTO     RENDER_LOOP
+   RETURN
+
+SEND_FRAME_FROM_RAM
+    MOVLW   HIGH(FRAME_BUFF)
+    MOVWF   FSR0H, 0
+    MOVLW   LOW(FRAME_BUFF)
+    MOVWF   FSR0L, 0
+    MOVLW   .192
+    MOVWF   LED_COUNT, 0
+SEND_LOOP
+    MOVFF   POSTINC0, BYTE_BUFF
+    CALL    SEND_BYTE
+    DECFSZ  LED_COUNT, 1, 0
+    GOTO    SEND_LOOP
+    CALL    SEND_RESET
+    RETURN
+
+SEND_BYTE
+    MOVLW   0x08
+    MOVWF   BIT_COUNT, 0
+BYTE_LOOP
+    CALL    SEND_BIT
+    DECFSZ  BIT_COUNT, 1, 0
+    GOTO    BYTE_LOOP
+    RETURN
+
+; *** RETIMED FOR 8MHz (Tcy=500ns) ***
+; WS2812-class targets: T1H~800ns, T0H~400ns, ~1.25us period.
+; At 500ns/cycle you only have ~2-3 cycles of resolution per bit,
+; which is right at the edge of what these LEDs tolerate. Verify
+; on a scope before trusting this on real hardware.
+SEND_BIT
+    BTFSS   BYTE_BUFF, 7, 0
+    GOTO    BIT_IS_ZERO
+    BSF     LATE, GRID_PIN, 0   ; "1": ~2 cycles high (~1.0us)
+    NOP
+    BCF     LATE, GRID_PIN, 0
+    GOTO    SEND_DONE
+BIT_IS_ZERO
+    BSF     LATE, GRID_PIN, 0   ; "0": ~1 cycle high (~0.5us)
+    BCF     LATE, GRID_PIN, 0
+SEND_DONE
+    RLNCF   BYTE_BUFF, 1, 0
+    RETURN
+
+SEND_RESET
+    BCF     LATE, GRID_PIN, 0
+    MOVLW   .50                ; scaled down from .200 (~4x fewer loop passes needed)
+    MOVWF   RESET_COUNT, 0
+RESET_LOOP
+    DECFSZ  RESET_COUNT, 1, 0
+    GOTO    RESET_LOOP
+    RETURN
+    
+; ###### Servo motor
+    
+; ---- vars ----
+SERVO_TARGET_L  EQU 0x70
+SERVO_TARGET_H  EQU 0x71
+SERVO_ON_TIME   EQU 0x72
+SERVO_ON_TIME_H EQU 0x73
+SERVO_NEXT_L    EQU 0x74   ; MS_TICKS snapshot for next allowed pulse
+SERVO_NEXT_H    EQU 0x75
+SERVO_PIN       EQU 4      ; RC4
+
+INIT_SERVO
+    BCF     TRISC, SERVO_PIN, 0
+    BCF     LATC, SERVO_PIN, 0
+    MOVFF   MS_TICKS_L, SERVO_NEXT_L
+    MOVFF   MS_TICKS_H, SERVO_NEXT_H
+    RETURN
+
+RECALC_SERVO_TARGET
+    MOVF    AGE_COUNTER, W, 0
+    MULLW   .23
+    BCF     STATUS, C, 0
+    MOVLW   LOW(.1200)
+    ADDWF   PRODL, W, 0
+    MOVWF   SERVO_TARGET_L, 0
+    MOVLW   HIGH(.1200)
+    ADDWFC  PRODH, W, 0
+    MOVWF   SERVO_TARGET_H, 0
+    RETURN
+
+; Call once per LOOP pass. Non-blocking except during the ~1-2ms
+; active pulse itself (unavoidable for bit-banged servo signaling).
+SERVICE_SERVO
+    ; has 20ms (80 quarter-ms ticks) elapsed since last pulse?
+    MOVF    MS_TICKS_L, W, 0
+    SUBWF   SERVO_NEXT_L, W, 0
+    MOVF    MS_TICKS_H, W, 0
+    SUBWFB  SERVO_NEXT_H, W, 0
+    BTFSC   STATUS, C, 0
+    RETURN                      ; next-time still in the future -> not due
+
+    ; schedule next pulse 80 ticks (20ms) from now
+    MOVLW   .80
+    ADDWF   SERVO_NEXT_L, 1, 0
+    MOVLW   0
+    ADDWFC  SERVO_NEXT_H, 1, 0
+
+    MOVFF   SERVO_TARGET_L, SERVO_ON_TIME
+    MOVFF   SERVO_TARGET_H, SERVO_ON_TIME_H
+
+    BSF     LATC, SERVO_PIN, 0
+SERVO_PULSE_LOOP
+    NOP
+    DECFSZ  SERVO_ON_TIME, 1, 0
+    GOTO    SERVO_PULSE_LOOP
+    DECFSZ  SERVO_ON_TIME_H, 1, 0
+    GOTO    SERVO_PULSE_LOOP
+    BCF     LATC, SERVO_PIN, 0
+    RETURN
+    
 ; ######################### --- MAIN --- #########################    
 MAIN
-    CALL INIT_OSC
-    CALL INIT_PORTS
-    CALl INIT_MENU
-    CALL INIT_GAME
-    CALL INIT_TIMER0
-    
-    CALL UPDATE_RGB
+    CALL    INIT_OSC
+    CALL    INIT_PORTS
+    CALl    INIT_MENU
+    CALL    INIT_GAME
+    CALL    INIT_TAMAGOTCHI
+    CALL    INIT_LM
+    CALL    INIT_SERVO
+    CALL    INIT_TIMER0
+    CALL    UPDATE_RGB
+    CALL    RECALC_SERVO_TARGET
    
 LOOP
     BTG	    LATC, 3, 0    ;Bit toggle RC3
     
     INCF    RNG_COUNTER, 1, 0
     
+    CALL    SERVICE_AGE_ENGINE
     CALL    MENU_BUTTON_CHECK
     CALL    POLL_NEW_NUMBER_BUTTON
     CALL    POLL_RESULT_PULSE
+    CALL    SERVICE_SERVO
+    
+    BCF     INTCON, GIE, 0
+    CALL    SEND_FRAME_FROM_RAM
+    BSF     INTCON, GIE, 0
     
     GOTO    LOOP
  
@@ -503,7 +811,37 @@ LOOP
 DEATH_STATE
     GOTO    DEATH_STATE
  
-    
+; ######################### GRAPHIC TEMPLATES DATABASE #########################
+    ORG 0x0600  
+IMAGE_BABY
+    DB  0,0,0,0,0,0,0,0
+    DB  0,0,0,0,0,0,0,0
+    DB  0,0,0,1,1,0,0,0
+    DB  0,0,1,0,0,1,0,0
+    DB  0,0,1,0,0,1,0,0
+    DB  0,0,0,1,1,0,0,0
+    DB  0,0,0,0,0,0,0,0
+    DB  0,0,0,0,0,0,0,0
+
+IMAGE_ADULT
+    DB  0,0,0,0,0,0,0,0
+    DB  0,0,1,1,1,1,0,0
+    DB  0,1,0,0,0,0,1,0
+    DB  0,1,0,0,0,0,1,0
+    DB  0,1,0,1,1,0,1,0
+    DB  0,1,0,0,0,0,1,0
+    DB  0,0,1,1,1,1,0,0
+    DB  0,0,0,0,0,0,0,0
+
+IMAGE_OLD
+    DB  0,1,1,1,1,1,1,0
+    DB  1,0,0,0,0,0,0,1
+    DB  1,0,1,1,1,1,0,1
+    DB  1,0,0,0,0,0,0,1
+    DB  1,0,1,0,0,1,0,1
+    DB  1,0,1,0,0,1,0,1
+    DB  1,0,0,0,0,0,0,1
+    DB  0,1,1,1,1,1,1,0    
     
     
 ; ######################### 7-SEGMENT TRANSLATION TABLE #########################
@@ -515,4 +853,5 @@ SEGMENT_TABLE
     DB  0x7F, 0x7B
       
     END
-      
+        
+    
