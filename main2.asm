@@ -105,7 +105,7 @@ HIGH_ISR
     BTFSS   INTCON, T0IF, 0
     RETFIE  FAST
 
-    BTG	    LATC, 3, 0    ;Bit toggle RC3
+    ;BTG	    LATC, 3, 0    ;Bit toggle RC3
     ; reload for next
     MOVLW   HIGH(.65286)    ;CONFIRMED
     MOVWF   TMR0H, 0
@@ -288,6 +288,8 @@ CMD_ZERO
     RETURN                      
 
     INCF    TOKENS, 1, 0   ;Safe to add 1 token
+    
+    CALL    DISPLAY_TOKEN
     RETURN
 
 CMD_ONE
@@ -295,6 +297,11 @@ CMD_ONE
     RETURN
 
 CMD_TWO
+    ;check if health already max
+    MOVF    HEALTH_STATE, F, 0  ; Move HEALTH_STATE to itself to update STATUS flags
+    BTFSC   STATUS, Z, 0        
+    RETURN                      
+    
     ;Check if we have tokens ---
     MOVF    TOKENS, F, 0   ; Moving a register to itself updates the STATUS flags
     BTFSC   STATUS, Z, 0        ; Is TOKEN_COUNT == 0?
@@ -302,6 +309,8 @@ CMD_TWO
 
     ;Pay 1 token ---
     DECF    TOKENS, 1, 0   ; Subtract 1 token from inventory
+    
+    CALL    DISPLAY_TOKEN
     
     CLRF    HEALTH_STATE, 0     ; 1. Force state back to 0 (Default Green)
     CLRF    HUNGER_COUNTER, 0  ; 2. Wipe the 90-second window back to zero
@@ -517,10 +526,6 @@ INIT_TAMAGOTCHI
     CLRF    HUNGER_COUNTER, 0 ;
     CLRF    TOKENS, 0
     
-    ;TEST
-    MOVLW   .1                 ; Start the game with 1 tokens for testing
-    MOVWF   TOKENS, 0
-    
     CLRF    MS_ACC, 0
     CLRF    MS_ACC_H, 0
     RETURN
@@ -552,7 +557,7 @@ SERVICE_AGE_ENGINE
     
     ;##### HUNGER
     INCF    HUNGER_COUNTER, 1, 0
-    MOVLW   .10                         ;TODO: make 90
+    MOVLW   .90                         ;TODO: make 90
     SUBWF   HUNGER_COUNTER, W, 0
     BTFSS   STATUS, Z, 0
     GOTO    SKIP_NEGLECT_TICK           ; Not 90 seconds yet, proceed with regular age checks
@@ -573,7 +578,7 @@ SERVICE_AGE_ENGINE
 SKIP_NEGLECT_TICK
     
     ;how many seconds to age
-    MOVLW   .15		;TODO; 60 (1min)
+    MOVLW   .60		;TODO; 60 (1min)
     SUBWF   SEC_COUNTER, W, 0
     BTFSS   STATUS, Z, 0
     RETURN
@@ -858,6 +863,8 @@ MAIN
     CALL    INIT_TIMER0
     CALL    UPDATE_RGB
     CALL    RECALC_SERVO_TARGET
+    
+    CALL    REFRESH_GAME_FRAME
    
 LOOP
     
@@ -869,17 +876,17 @@ LOOP
     ;CALL    POLL_RESULT_PULSE
     CALL    SERVICE_SERVO
     
-    ;BTG	    LATC, 3, 0
+    BTG	    LATC, 3, 0
     
     ; --- LED UPDATE CHECK ---
-    BTFSS LED_DIRTY_FLAG          ; Test the Dirty Flag. Skip next instruction if set (1).
-    BRA SKIP_LED_UPDATE           ; If flag is 0, branch over the LED routine entirely.
+    BTFSS LED_DIRTY_FLAG         
+    BRA SKIP_LED_UPDATE           
 
-    ; --- LED UPDATE EXECUTION (Takes ~4ms) ---
-    BCF INTCON, GIE, 0            ; 1. Disable Global Interrupts to protect strict LED timing.
-    CALL SEND_FRAME_FROM_RAM      ; 2. Blast the 1536 bits to the LEDs.
-    BSF INTCON, GIE, 0            ; 3. Re-enable Global Interrupts immediately after.
-    BCF LED_DIRTY_FLAG            ; 4. Clear the Dirty Flag so we don't send it again next loop.
+    ; --- LED UPDATE EXECUTION  ---
+    BCF INTCON, GIE, 0            
+    CALL SEND_FRAME_FROM_RAM      
+    BSF INTCON, GIE, 0          
+    BCF LED_DIRTY_FLAG            
 
 SKIP_LED_UPDATE
     
