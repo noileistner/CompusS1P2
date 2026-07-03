@@ -40,11 +40,11 @@ MS_TICK_FLAG	EQU 0x43    ; flag
 
     
 ; ######################### --- INITS --- #########################   
-INIT_OSC   ; Configure the microcontroller @ 8MHz w/ internal oscillator 
-   MOVLW   b'01110000'      ;8MHz fosc
+INIT_OSC   ; Configure the microcontroller 
+   MOVLW   b'01110000'      ;32MHz fosc
    MOVWF   OSCCON,0  
     
-   MOVLW   b'00000000'	;PLLEN off
+   MOVLW   b'01000000'	;PLLEN on 8x4
    MOVWF   OSCTUNE,0
    RETURN 
    
@@ -105,8 +105,9 @@ HIGH_ISR
     BTFSS   INTCON, T0IF, 0
     RETFIE  FAST
 
-    ; reload for next 250us
-    MOVLW   HIGH(.65286)
+    BTG	    LATC, 3, 0    ;Bit toggle RC3
+    ; reload for next
+    MOVLW   HIGH(.65286)    ;CONFIRMED
     MOVWF   TMR0H, 0
     MOVLW   LOW(.65286)
     MOVWF   TMR0L, 0
@@ -538,7 +539,7 @@ SERVICE_AGE_ENGINE
     BTFSC   STATUS, Z, 0
     GOTO    DEATH_STATE
 
-    MOVLW   .30
+    MOVLW   .30		    
     SUBWF   AGE_COUNTER, W, 0
     BTFSC   STATUS, C, 0
     GOTO    AGE_CHECK_OLD
@@ -560,6 +561,7 @@ AGE_SET_OLD
 
 AGE_REFRESH
     CALL    REFRESH_GAME_FRAME
+    
     RETURN  
     
 ; ######## LED Matrix
@@ -571,16 +573,23 @@ LED_COUNT       EQU 0x62
 RESET_COUNT     EQU 0x63
 FRAME_BUFF      EQU 0x100   ; 64 px * 3 bytes = 192 bytes, pick a free bank
 GRID_PIN        EQU 0       ; RE0
+	
+SYS_FLAGS      EQU 0x64 
+#DEFINE LED_DIRTY_FLAG  SYS_FLAGS, 0
 
 INIT_LM
     BCF     TRISE, GRID_PIN, 0
     BCF     LATE, GRID_PIN, 0
+    
+    CALL    REFRESH_GAME_FRAME
     RETURN
 
 ; --- unchanged logic from your original REFRESH_GAME_FRAME / RENDER_LOOP ---
 ; (copy verbatim: TBLPTR setup by SHAPE_STATE, RENDER_LOOP, SET_COLOR_*, WRITE_BLANK)
 ; This part does no timing-sensitive work, only table reads + RAM writes.
 REFRESH_GAME_FRAME
+    BSF LED_DIRTY_FLAG
+    
     MOVLW    .0
     CPFSEQ   SHAPE_STATE, 0
     BRA      TRY_ADULT_PTR
@@ -699,18 +708,27 @@ SEND_BIT
     GOTO    BIT_IS_ZERO
     BSF     LATE, GRID_PIN, 0   ; "1": ~2 cycles high (~1.0us)
     NOP
+    NOP
+    NOP
+    NOP
+    NOP
     BCF     LATE, GRID_PIN, 0
     GOTO    SEND_DONE
 BIT_IS_ZERO
     BSF     LATE, GRID_PIN, 0   ; "0": ~1 cycle high (~0.5us)
+    NOP
+    NOP
     BCF     LATE, GRID_PIN, 0
 SEND_DONE
+    NOP
+    NOP
+    NOP
     RLNCF   BYTE_BUFF, 1, 0
     RETURN
 
 SEND_RESET
     BCF     LATE, GRID_PIN, 0
-    MOVLW   .50                ; scaled down from .200 (~4x fewer loop passes needed)
+    MOVLW   .300                ; scaled down from .200 (~4x fewer loop passes needed)
     MOVWF   RESET_COUNT, 0
 RESET_LOOP
     DECFSZ  RESET_COUNT, 1, 0
@@ -785,25 +803,35 @@ MAIN
     CALL    INIT_GAME
     CALL    INIT_TAMAGOTCHI
     CALL    INIT_LM
-    CALL    INIT_SERVO
+    ;CALL    INIT_SERVO
     CALL    INIT_TIMER0
     CALL    UPDATE_RGB
-    CALL    RECALC_SERVO_TARGET
+    ;CALL    RECALC_SERVO_TARGET
    
 LOOP
-    BTG	    LATC, 3, 0    ;Bit toggle RC3
     
     INCF    RNG_COUNTER, 1, 0
     
     CALL    SERVICE_AGE_ENGINE
     CALL    MENU_BUTTON_CHECK
-    CALL    POLL_NEW_NUMBER_BUTTON
-    CALL    POLL_RESULT_PULSE
+    ;CALL    POLL_NEW_NUMBER_BUTTON
+    ;CALL    POLL_RESULT_PULSE
     CALL    SERVICE_SERVO
     
-    BCF     INTCON, GIE, 0
-    CALL    SEND_FRAME_FROM_RAM
-    BSF     INTCON, GIE, 0
+    ;BTG	    LATC, 3, 0
+    
+    ; --- LED UPDATE CHECK ---
+    BTFSS LED_DIRTY_FLAG          ; Test the Dirty Flag. Skip next instruction if set (1).
+    BRA SKIP_LED_UPDATE           ; If flag is 0, branch over the LED routine entirely.
+
+    ; --- LED UPDATE EXECUTION (Takes ~4ms) ---
+    BCF INTCON, GIE, 0            ; 1. Disable Global Interrupts to protect strict LED timing.
+    CALL SEND_FRAME_FROM_RAM      ; 2. Blast the 1536 bits to the LEDs.
+    BSF INTCON, GIE, 0            ; 3. Re-enable Global Interrupts immediately after.
+    BCF LED_DIRTY_FLAG            ; 4. Clear the Dirty Flag so we don't send it again next loop.
+
+SKIP_LED_UPDATE
+    
     
     GOTO    LOOP
  
