@@ -8,7 +8,7 @@
     ORG 0x0000 
     GOTO    MAIN 
     ORG     0x0008  
-    RETFIE  FAST  
+    GOTO    HIGH_ISR
     ORG     0x0018  
     RETFIE  FAST 
 
@@ -21,10 +21,23 @@ BTN_STATE       EQU 0x23    ; pressed or not
 
 RNG_SEED        EQU 0x24    ; running LFSR state
 RANDOM_NUM      EQU 0x25    ; latest generated 4-bit number (0-15)
-SEC_COUNTER     EQU 0x26    ; garbage
+RNG_COUNTER     EQU 0x26    ; garbage
 GAME_ACTIVE	EQU 0x27    ; active or not
 RA4_PREV	EQU 0x28    ; newNum btn state
-    
+	
+TOKENS		EQU 0x29    ; max 5
+PULSE_STATE     EQU 0x30
+PULSE_START_L   EQU 0x31
+PULSE_START_H   EQU 0x32
+TEMP_L		EQU 0x33
+TEMP_H		EQU 0x34
+		    
+		
+QTICK_CNT       EQU 0x40    ; counts 0-3 (quarter-ms subticks)
+MS_TICKS_L      EQU 0x41    ; free-running quarter-ms counter, low byte
+MS_TICKS_H      EQU 0x42    ; free-running quarter-ms counter, high byte
+MS_TICK_FLAG	EQU 0x43    ; flag 
+
     
 ; ######################### --- INITS --- #########################   
 INIT_OSC   ; Configure the microcontroller @ 8MHz w/ internal oscillator 
@@ -71,9 +84,51 @@ INIT_MENU
    
    RETURN
 
-
+INIT_TIMER0
+    MOVLW   b'10000010'     ; TMR0ON, 16-bit, internal clk, 1:8 prescaler
+    MOVWF   T0CON, 0
+    MOVLW   HIGH(.65286)
+    MOVWF   TMR0H, 0
+    MOVLW   LOW(.65286)
+    MOVWF   TMR0L, 0
+    BCF     INTCON, T0IF, 0
+    BSF     INTCON, T0IE, 0   ; enable Timer0 interrupt
+    BSF     INTCON, GIE, 0    ; enable global interrupts
+    RETURN
+    
 ; ######################### --- Functions --- #########################  
 
+
+; ###### TIMER
+    
+HIGH_ISR
+    BTFSS   INTCON, T0IF, 0
+    RETFIE  FAST
+
+    ; reload for next 250us
+    MOVLW   HIGH(.65286)
+    MOVWF   TMR0H, 0
+    MOVLW   LOW(.65286)
+    MOVWF   TMR0L, 0
+    BCF     INTCON, T0IF, 0
+
+    ; free-running quarter-ms counter, for pulse timing
+    INFSNZ  MS_TICKS_L, 1, 0
+    INCF    MS_TICKS_H, 1, 0
+
+    ; roll 4 subticks into one "1ms" event for SEC_COUNTER logic
+    INCF    QTICK_CNT, 1, 0
+    MOVLW   .4
+    SUBWF   QTICK_CNT, W, 0
+    BTFSS   STATUS, Z, 0
+    RETFIE  FAST
+
+    CLRF    QTICK_CNT, 0
+    BSF     MS_TICK_FLAG, 0, 0   ; tell main loop "1ms elapsed"
+
+    RETFIE  FAST
+    
+    
 ; ###### DEBOUNCE
 WAIT_DEBOUNCE            
     MOVLW   0x34        
@@ -87,7 +142,7 @@ DB_WAIT
     
     DECFSZ  DEBOUNCE_TIMER,1,0  
     GOTO DB_LOOP        
-    RETURN    
+    RETURN     
     
 ; ###### RGB
     
@@ -243,6 +298,7 @@ INIT_GAME
     
     CLRF    GAME_ACTIVE, 0
     CLRF    RA4_PREV, 0
+    CLRF    TOKENS, 0
  
     RETURN
   
@@ -307,19 +363,14 @@ PNB_EXIT
     CLRF    GAME_ACTIVE, 0
 PNB_DONE
     RETURN
- 
-; ------------------------------------------------------------------
-; Puts RANDOM_NUM (0-9, fits in 4 bits) onto RA0-3
-; ------------------------------------------------------------------
+
+    
 DISPLAY_BINARY
     MOVF    RANDOM_NUM, W, 0
     ANDLW   0x0F
     MOVWF   LATA, 0         ; RA4-7 are inputs, so upper bits here are irrelevant
     RETURN
  
-; ------------------------------------------------------------------
-; Unchanged - table lookup for 7-segment pattern
-; ------------------------------------------------------------------
 DISPLAY_7SEG
     MOVLW   UPPER(SEGMENT_TABLE)
     MOVWF   TBLPTRU, 0
@@ -338,11 +389,9 @@ DISPLAY_7SEG
     MOVWF   LATD, 0
     RETURN
  
-; ------------------------------------------------------------------
-; Unchanged - RNG core
-; ------------------------------------------------------------------
+
 UPDATE_RNG
-    MOVF    SEC_COUNTER, W, 0
+    MOVF    RNG_COUNTER, W, 0
     XORWF   RNG_SEED, W, 0
     MULLW   .7
     RRNCF   PRODL, F, 0
@@ -350,22 +399,103 @@ UPDATE_RNG
     MOVWF   RNG_SEED, 0
     RETURN 
     
+POLL_RESULT_PULSE
+    MOVF    GAME_ACTIVE, W, 0
+    BZ      PRP_DONE
+
+    BTFSS   PORTB, 4, 0
+    BRA     PULSE_LOW
+    ; pin HIGH
+    MOVF    PULSE_STATE, W, 0
+    BZ      PRP_DONE
+    CLRF    PULSE_STATE, 0
+
+    ; diff = MS_TICKS - PULSE_START  (snapshot both, interrupts can be left on -
+    ; a single-byte race is negligible here, but disable briefly to be safe)
+    BCF     INTCON, GIE, 0
+    MOVF    MS_TICKS_L, W, 0
+    MOVWF   TEMP_L, 0
+    MOVF    MS_TICKS_H, W, 0
+    MOVWF   TEMP_H, 0
+    BSF     INTCON, GIE, 0
+
+    MOVF    PULSE_START_L, W, 0
+    SUBWF   TEMP_L, F, 0
+    MOVF    PULSE_START_H, W, 0
+    SUBWFB  TEMP_H, F, 0
+
+    MOVLW   .6
+    SUBWF   TEMP_L, W, 0
+    MOVF    TEMP_H, W, 0
+    BTFSS   STATUS, Z, 0
+    BRA     PRP_LONG_CHECK
+    ; TEMP_H==0 case handled below anyway; simplest: just check TEMP_H!=0 OR TEMP_L>=6
+PRP_LONG_CHECK
+    MOVF    TEMP_H, W, 0
+    BNZ     PRP_ADD_TOKEN         ; overflowed a byte -> definitely long
+    MOVLW   .6
+    SUBWF   TEMP_L, W, 0
+    BTFSS   STATUS, C, 0
+    BRA     PRP_DONE              ; < 6 ticks -> short pulse, ignore
+PRP_ADD_TOKEN
+    MOVLW   .5
+    SUBWF   TOKENS, W, 0
+    BTFSC   STATUS, Z, 0
+    BRA     PRP_DONE
+    INCF    TOKENS, 1, 0
+    CALL    DISPLAY_TOKEN
+    BRA     PRP_DONE
+
+PULSE_LOW
+    MOVF    PULSE_STATE, W, 0
+    BNZ     PRP_DONE
+    MOVLW   0x01
+    MOVWF   PULSE_STATE, 0
+    BCF     INTCON, GIE, 0
+    MOVF    MS_TICKS_L, W, 0
+    MOVWF   PULSE_START_L, 0
+    MOVF    MS_TICKS_H, W, 0
+    MOVWF   PULSE_START_H, 0
+    BSF     INTCON, GIE, 0
+PRP_DONE
+    RETURN  
+    
+DISPLAY_TOKEN
+    MOVLW   UPPER(SEGMENT_TABLE)
+    MOVWF   TBLPTRU, 0
+    MOVLW   HIGH(SEGMENT_TABLE)
+    MOVWF   TBLPTRH, 0
+    MOVLW   LOW(SEGMENT_TABLE)
+    MOVWF   TBLPTRL, 0
+ 
+    MOVF    TOKENS, W, 0
+    ADDWF   TBLPTRL, F, 0
+    MOVLW   0
+    ADDWFC  TBLPTRH, F, 0
+ 
+    TBLRD*
+    MOVF    TABLAT, W, 0
+    MOVWF   LATD, 0
+    RETURN
+
 ; ######################### --- MAIN --- #########################    
 MAIN
     CALL INIT_OSC
     CALL INIT_PORTS
     CALl INIT_MENU
     CALL INIT_GAME
+    CALL INIT_TIMER0
     
     CALL UPDATE_RGB
    
 LOOP
     BTG	    LATC, 3, 0    ;Bit toggle RC3
     
-    INCF    SEC_COUNTER, 1, 0
+    INCF    RNG_COUNTER, 1, 0
     
     CALL    MENU_BUTTON_CHECK
     CALL    POLL_NEW_NUMBER_BUTTON
+    CALL    POLL_RESULT_PULSE
     
     GOTO    LOOP
  
