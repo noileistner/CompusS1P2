@@ -591,17 +591,17 @@ INIT_TIMER0
 
 RECALC_SERVO_TARGET
     MOVF    AGE_COUNTER, W, 0
-    MULLW   .23             
+    MULLW   .20	    ;23             
 
     ; Securely clear Carry flag before running addition math
     BCF     STATUS, C, 0
 
     ; Base count offset updated to .1200 (~1.5ms Center Position at 32MHz)
-    MOVLW   LOW(.1200)
+    MOVLW   LOW(.2256)
     ADDWF   PRODL, W, 0         
     MOVWF   SERVO_TARGET_L, 0    
     
-    MOVLW   HIGH(.1200)
+    MOVLW   HIGH(.2256)
     ADDWFC  PRODH, W, 0         
     MOVWF   SERVO_TARGET_H, 0      
     RETURN

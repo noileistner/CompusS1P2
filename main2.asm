@@ -281,6 +281,13 @@ SELECT_PRESS
 
 ; Commands
 CMD_ZERO
+    ;TEST: add token
+    MOVLW   .5
+    SUBWF   TOKENS, W, 0   ; W = TOKEN - 5
+    BTFSC   STATUS, Z, 0        ; TOKEN == 5?
+    RETURN                      
+
+    INCF    TOKENS, 1, 0   ;Safe to add 1 token
     RETURN
 
 CMD_ONE
@@ -288,6 +295,17 @@ CMD_ONE
     RETURN
 
 CMD_TWO
+    ;Check if we have tokens ---
+    MOVF    TOKENS, F, 0   ; Moving a register to itself updates the STATUS flags
+    BTFSC   STATUS, Z, 0        ; Is TOKEN_COUNT == 0?
+    RETURN                      ;No tokens available, reject the feed command.
+
+    ;Pay 1 token ---
+    DECF    TOKENS, 1, 0   ; Subtract 1 token from inventory
+    
+    CLRF    HEALTH_STATE, 0     ; 1. Force state back to 0 (Default Green)
+    CLRF    HUNGER_COUNTER, 0  ; 2. Wipe the 90-second window back to zero
+    CALL    REFRESH_GAME_FRAME  ; 3. Regenerate the frame colors instantly
     RETURN
     
 ; ####### GAME
@@ -488,12 +506,21 @@ SHAPE_STATE     EQU 0x52    ; 0 baby / 1 adult / 2 old
 HEALTH_STATE    EQU 0x53    ; 0 green / 1 yellow / 2 red
 MS_ACC          EQU 0x54    ; counts MS_TICK_FLAG events up to 1000 (needs 2 bytes if you want exact 1000; see note)
 MS_ACC_H        EQU 0x55
+	
+HUNGER_COUNTER  EQU 0x56    ; 0-90 seconds
 
 INIT_TAMAGOTCHI
     CLRF    SEC_COUNTER, 0
     CLRF    AGE_COUNTER, 0
     CLRF    SHAPE_STATE, 0
     CLRF    HEALTH_STATE, 0
+    CLRF    HUNGER_COUNTER, 0 ;
+    CLRF    TOKENS, 0
+    
+    ;TEST
+    MOVLW   .1                 ; Start the game with 1 tokens for testing
+    MOVWF   TOKENS, 0
+    
     CLRF    MS_ACC, 0
     CLRF    MS_ACC_H, 0
     RETURN
@@ -522,14 +549,38 @@ SERVICE_AGE_ENGINE
     CLRF    MS_ACC, 0
     CLRF    MS_ACC_H, 0
     INCF    SEC_COUNTER, 1, 0
+    
+    ;##### HUNGER
+    INCF    HUNGER_COUNTER, 1, 0
+    MOVLW   .10                         ;TODO: make 90
+    SUBWF   HUNGER_COUNTER, W, 0
+    BTFSS   STATUS, Z, 0
+    GOTO    SKIP_NEGLECT_TICK           ; Not 90 seconds yet, proceed with regular age checks
 
-    MOVLW   .60
+    ; 90 seconds hit! Advance health state
+    CLRF    HUNGER_COUNTER, 0
+    INCF    HEALTH_STATE, 1, 0          ; Move Green (0) -> Yellow (1) -> Red (2)
+
+    ; Check if health has degraded past Red (Value 3 = Death)
+    MOVLW   .3
+    SUBWF   HEALTH_STATE, W, 0
+    BTFSC   STATUS, Z, 0
+    GOTO    DEATH_STATE                 ; Failed to clean/feed in time! Permanent trap.
+
+    ; Update matrix buffers instantly so user sees the color shift
+    CALL    REFRESH_GAME_FRAME
+
+SKIP_NEGLECT_TICK
+    
+    ;how many seconds to age
+    MOVLW   .15		;TODO; 60 (1min)
     SUBWF   SEC_COUNTER, W, 0
     BTFSS   STATUS, Z, 0
     RETURN
 
+    ;age
     CLRF    SEC_COUNTER, 0
-    MOVLW   .10
+    MOVLW   .10	
     ADDWF   AGE_COUNTER, 1, 0
 
     CALL    RECALC_SERVO_TARGET   ; module 3
@@ -755,12 +806,12 @@ INIT_SERVO
 
 RECALC_SERVO_TARGET
     MOVF    AGE_COUNTER, W, 0
-    MULLW   .23
+    MULLW   .60		;TODO: ADJUST (was 23)
     BCF     STATUS, C, 0
-    MOVLW   LOW(.1200)
+    MOVLW   LOW(.1000)	;TODO: ADJUST (was 1200/ 2000)
     ADDWF   PRODL, W, 0
     MOVWF   SERVO_TARGET_L, 0
-    MOVLW   HIGH(.1200)
+    MOVLW   HIGH(.1000)
     ADDWFC  PRODH, W, 0
     MOVWF   SERVO_TARGET_H, 0
     RETURN
@@ -803,10 +854,10 @@ MAIN
     CALL    INIT_GAME
     CALL    INIT_TAMAGOTCHI
     CALL    INIT_LM
-    ;CALL    INIT_SERVO
+    CALL    INIT_SERVO
     CALL    INIT_TIMER0
     CALL    UPDATE_RGB
-    ;CALL    RECALC_SERVO_TARGET
+    CALL    RECALC_SERVO_TARGET
    
 LOOP
     
