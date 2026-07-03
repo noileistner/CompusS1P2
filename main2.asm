@@ -1,4 +1,4 @@
-    LIST P=PIC18F4321    F=INHX32   
+LIST P=PIC18F4321    F=INHX32   
     #include <p18f4321.inc> 
     CONFIG  OSC=INTIO2; Internal oscillator @ 16MHz 
     CONFIG  PBADEN=DIG ; PORTB = DIGital 
@@ -24,8 +24,9 @@ RANDOM_NUM      EQU 0x25    ; latest generated 4-bit number (0-15)
 RNG_COUNTER     EQU 0x26    ; garbage
 GAME_ACTIVE	EQU 0x27    ; active or not
 RA4_PREV	EQU 0x28    ; newNum btn state
-	
 TOKENS		EQU 0x29    ; max 5
+GAME_2SEC_TIMER EQU 0x2A    ;		
+		
 PULSE_STATE     EQU 0x30
 PULSE_START_L   EQU 0x31
 PULSE_START_H   EQU 0x32
@@ -68,6 +69,11 @@ INIT_PORTS
    CLRF     LATD,0     ; Clear 7-Segment outputs on boot
    
    ;game 
+   BCF	    TRISA,6,0	;ra6 OUT = RanGen
+   BCF	    TRISA,0,0	;ran num bin OUT
+   BCF	    TRISA,1,0	;
+   BCF	    TRISA,2,0	;
+   BCF	    TRISA,3,0	;ran num bin OUT
    SETF     ADCON1,0   ; Make all pins digital
    BSF	    TRISA,4,0	;ra4 in newnum
    BSF	    TRISA,5,0	;ra5 in playing (stop gen)
@@ -229,7 +235,8 @@ CH_SELECT_EDGE
    GOTO     SELECT_PRESS
 
 
-MENU_LEFT     
+MENU_LEFT    
+    CLRF    GAME_ACTIVE, 0
     MOVF    MENU_ID,W,0
     BTFSS   STATUS, Z ,0
     GOTO    DECREMENT
@@ -243,7 +250,8 @@ SKIP_DECREMENT
     RETURN
   
    
-MENU_RIGHT    
+MENU_RIGHT  
+    CLRF    GAME_ACTIVE, 0
     MOVLW   0x02
     SUBWF   MENU_ID,W,0
     BTFSC   STATUS,Z,0   
@@ -282,14 +290,18 @@ SELECT_PRESS
 ; Commands
 CMD_ZERO
     ;TEST: add token
-    MOVLW   .5
-    SUBWF   TOKENS, W, 0   ; W = TOKEN - 5
-    BTFSC   STATUS, Z, 0        ; TOKEN == 5?
-    RETURN                      
-
-    INCF    TOKENS, 1, 0   ;Safe to add 1 token
+    ;MOVLW   .5
+    ;SUBWF   TOKENS, W, 0   ; W = TOKEN - 5
+    ;BTFSC   STATUS, Z, 0        ; TOKEN == 5?
+    ;RETURN                     
+    ;INCF    TOKENS, 1, 0   ;Safe to add 1 token
+    ;CALL    DISPLAY_TOKEN
     
-    CALL    DISPLAY_TOKEN
+WAIT_FOR_RELEASE
+    BTFSS   PORTB, 2, 0    ; Is RB2 High (released)? Skip if yes.
+    BRA     WAIT_FOR_RELEASE ;
+    RESET
+    
     RETURN
 
 CMD_ONE
@@ -332,14 +344,15 @@ INIT_GAME
   
 
 START_PLAY_GAME
+    CLRF    GAME_2SEC_TIMER, 0  ;
     CALL    GENERATE_NEW_NUMBER
  
     MOVLW   0x01
     MOVWF   GAME_ACTIVE, 0
  
     CLRF    RA4_PREV, 0
-    ;BTFSC   PORTA, 4, 0
-    ;BSF     RA4_PREV, 0, 0
+    BTFSC   PORTA, 4, 0
+    BSF     RA4_PREV, 0, 0
     RETURN
  
 
@@ -357,38 +370,23 @@ GENERATE_NEW_NUMBER
     SUBWF   RANDOM_NUM, F, 0
 GNN_VALID
     CALL    DISPLAY_7SEG
-    ;CALL    DISPLAY_BINARY
+    CALL    DISPLAY_BINARY
     RETURN
     
     
 ; Game "MAIN"
 POLL_NEW_NUMBER_BUTTON
-    ;Check if the game is active
+    ; Check if the game is active
     MOVF    GAME_ACTIVE, W, 0
-    BZ      PNB_DONE        ; If 0, don't play
+    BZ      PNB_DONE            ; If game mode is 0, exit out safely
     
-    ; Check if RA5 is high
-    BTFSC   PORTA, 5, 0     ;
-    BRA     PNB_EXIT        
-    
-    ; Now check RA4
-    BTFSS   PORTA, 4, 0    
-    BRA     PNB_LOW        
-    
-    ; RA4 is high
-    BTFSC   RA4_PREV, 0, 0  ; Already handled this press?
-    BRA     PNB_DONE
-    
-    CALL    GENERATE_NEW_NUMBER
-    BSF     RA4_PREV, 0, 0
-    BRA     PNB_DONE
-
-PNB_LOW
-    BCF     RA4_PREV, 0, 0
-    BRA     PNB_DONE
+    ; Check if RA5 is high (Stop command given)
+    BTFSC   PORTA, 5, 0         ; Read pin state
+    BRA     PNB_EXIT            ; High -> Turn off game mode
+    RETURN                      ; Low -> Do nothing, keep rolling
 
 PNB_EXIT
-    CLRF    GAME_ACTIVE, 0
+    CLRF    GAME_ACTIVE, 0      ; Shut down the minigame engine
 PNB_DONE
     RETURN
 
@@ -428,8 +426,6 @@ UPDATE_RNG
     RETURN 
     
 POLL_RESULT_PULSE
-    MOVF    GAME_ACTIVE, W, 0
-    BZ      PRP_DONE
 
     BTFSS   PORTB, 4, 0
     BRA     PULSE_LOW
@@ -467,10 +463,10 @@ PRP_LONG_CHECK
     BRA     PRP_DONE              ; < 6 ticks -> short pulse, ignore
 PRP_ADD_TOKEN
     MOVLW   .5
-    SUBWF   TOKENS, W, 0
-    BTFSC   STATUS, Z, 0
-    BRA     PRP_DONE
-    INCF    TOKENS, 1, 0
+    SUBWF   TOKENS, W, 0   ; W = TOKEN - 5
+    BTFSC   STATUS, Z, 0        ; TOKEN == 5?
+    BRA	    PRP_DONE                    
+    INCF    TOKENS, 1, 0   ;Safe to add 1 token
     CALL    DISPLAY_TOKEN
     BRA     PRP_DONE
 
@@ -554,6 +550,32 @@ SERVICE_AGE_ENGINE
     CLRF    MS_ACC, 0
     CLRF    MS_ACC_H, 0
     INCF    SEC_COUNTER, 1, 0
+    
+    ;#### RANGEN TICKS
+    MOVF    GAME_ACTIVE, W, 0
+    BZ      GAME_OFF_BYPASS         ; If game isn't active, bypass and turn off pin
+    
+    INCF    GAME_2SEC_TIMER, 1, 0   ; Add 1 second to the game timer
+    MOVLW   .2
+    SUBWF   GAME_2SEC_TIMER, W, 0   ; Check if 2 seconds have passed
+    BTFSS   STATUS, Z, 0
+    BRA     TURN_PIN_ON             ; Not at 2 seconds yet (it's at 1 second), turn pin ON
+    
+    ; --- 2 SECONDS REACHED: Generate & Drop Pin LOW ---
+    CLRF    GAME_2SEC_TIMER, 0      ; Reset 2-second counter
+    CALL    GENERATE_NEW_NUMBER     ; Automatically roll and display a new number
+    BCF     LATA, 6, 0              ; Turn ranGen (RA6) LOW immediately when number changes
+    BRA     SKIP_GAME_TIMER
+    
+TURN_PIN_ON
+    BSF     LATA, 6, 0              ; 1 second has passed since generation, turn ranGen HIGH
+    BRA     SKIP_GAME_TIMER
+
+GAME_OFF_BYPASS
+    BCF     LATA, 6, 0              ; Safety: Ensure pin is completely off if game is inactive
+
+SKIP_GAME_TIMER
+    
     
     ;##### HUNGER
     INCF    HUNGER_COUNTER, 1, 0
@@ -872,8 +894,8 @@ LOOP
     
     CALL    SERVICE_AGE_ENGINE
     CALL    MENU_BUTTON_CHECK
-    ;CALL    POLL_NEW_NUMBER_BUTTON
-    ;CALL    POLL_RESULT_PULSE
+    CALL    POLL_NEW_NUMBER_BUTTON
+    CALL    POLL_RESULT_PULSE
     CALL    SERVICE_SERVO
     
     BTG	    LATC, 3, 0
