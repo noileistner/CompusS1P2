@@ -600,7 +600,7 @@ SKIP_GAME_TIMER
 SKIP_NEGLECT_TICK
     
     ;how many seconds to age
-    MOVLW   .60		;TODO; 60 (1min)
+    MOVLW   .5		;TODO; 60 (1min)
     SUBWF   SEC_COUNTER, W, 0
     BTFSS   STATUS, Z, 0
     RETURN
@@ -776,11 +776,7 @@ BYTE_LOOP
     GOTO    BYTE_LOOP
     RETURN
 
-; *** RETIMED FOR 8MHz (Tcy=500ns) ***
-; WS2812-class targets: T1H~800ns, T0H~400ns, ~1.25us period.
-; At 500ns/cycle you only have ~2-3 cycles of resolution per bit,
-; which is right at the edge of what these LEDs tolerate. Verify
-; on a scope before trusting this on real hardware.
+
 SEND_BIT
     BTFSS   BYTE_BUFF, 7, 0
     GOTO    BIT_IS_ZERO
@@ -835,10 +831,10 @@ RECALC_SERVO_TARGET
     MOVF    AGE_COUNTER, W, 0
     MULLW   .60		;TODO: ADJUST (was 23)
     BCF     STATUS, C, 0
-    MOVLW   LOW(.1000)	;TODO: ADJUST (was 1200/ 2000)
+    MOVLW   LOW(.2000)	;TODO: ADJUST (was 1200/ 2000)
     ADDWF   PRODL, W, 0
     MOVWF   SERVO_TARGET_L, 0
-    MOVLW   HIGH(.1000)
+    MOVLW   HIGH(.2000)
     ADDWFC  PRODH, W, 0
     MOVWF   SERVO_TARGET_H, 0
     RETURN
@@ -917,6 +913,9 @@ SKIP_LED_UPDATE
  
 ; ######################### PERMANENT DEATH TRAP #########################
 DEATH_STATE
+    BCF  LATC,5,0
+    BCF  LATC,6,0
+    BSF  LATC,7,0
     GOTO    DEATH_STATE
  
 ; ######################### GRAPHIC TEMPLATES DATABASE #########################
