@@ -121,16 +121,17 @@ INIT_RGB
    MOVWF    TRISC, 0
    
    MOVF     LATC, W, 0
-   ANDLW    b'00011111' ; Clear RGB indicators on boot
+   ANDLW    b'00011111' ; Clear RGB indicators on boot 
    MOVWF    LATC, 0
 
    SETF     TRISB,0    ; PORTB fully input (game pins RB5/RB6/RB7 stay input here)
    BCF      INTCON2, RBPU,0   ; enable PORTB pull-ups
-   MOVLW    0x02
+   MOVLW    0x01    ;init state
    MOVWF    MENU_ID, 0
    CLRF     BTN_STATE, 0      ; Start unlatched
    RETURN
 
+<<<<<<< HEAD
 INIT_PLAY_GAME
    ;make A digital
     MOVLW   0x0F            ; Value to make all A/D pins digital
@@ -164,8 +165,22 @@ INIT_PLAY_GAME
     CLRF    NEWNUM_LAST, 0
     
     RETURN
+=======
+>>>>>>> int
    
+; ######################### MENU_BUTTON_CHECK (simplified, independent per-button) #########################
+; RB0 = Left   (active low, idle high)
+; RB1 = Right  (active low, idle high)
+; RB2 = Select (active low, idle high)
+;
+; BTN_STATE is a 3-bit field, one latch bit per button:
+;   bit0 = Left latch, bit1 = Right latch, bit2 = Select latch
+;   1 = currently pressed & already handled, 0 = released / not yet handled
+;
+; Each button is fully independent. A button's own latch only clears
+; when THAT button's pin goes back high - no shared "all idle" gate.
 
+<<<<<<< HEAD
 ; --- NON-BLOCKING EDGE TRIGGER MECHANISM ---
 MENU_BUTTON_CHECK
    ; STEP 1: Verify if all buttons are back in their IDLE released states
@@ -175,39 +190,71 @@ MENU_BUTTON_CHECK
    XORLW    b'00000011'       ; Idle: RB0=1, RB1=1, RB2=0 -> 011
    BTFSC    STATUS, Z, 0
    CLRF     BTN_STATE, 0      ; Clears memory lock register once ALL buttons are released
+=======
+MENU_BUTTON_CHECK
+   ; ---- LEFT (RB0, bit0) ----
+   BTFSS    PORTB, 0, 0        ; pin high (released)? skip if so
+   BRA      LEFT_PRESSED       ; pin is low -> button currently pressed
+   BCF      BTN_STATE, 0, 0    ; released -> clear latch
+   BRA      RIGHT_CHECK
+LEFT_PRESSED
+   BTFSC    BTN_STATE, 0, 0    ; already latched (handled this press)?
+   BRA      RIGHT_CHECK        ; yes -> nothing to do
+   CALL     CH_LEFT_EDGE
+>>>>>>> int
 
-   ; STEP 2: If an operation is currently locked, skip reading inputs entirely
-   MOVF     BTN_STATE, W, 0
-   BTFSS    STATUS, Z, 0
-   RETURN                     
+RIGHT_CHECK
+   ; ---- RIGHT (RB1, bit1) ----
+   BTFSS    PORTB, 1, 0
+   BRA      RIGHT_PRESSED
+   BCF      BTN_STATE, 1, 0
+   BRA      SELECT_CHECK
+RIGHT_PRESSED
+   BTFSC    BTN_STATE, 1, 0
+   BRA      SELECT_CHECK
+   CALL     CH_RIGHT_EDGE
 
-   ; STEP 3: Detect initial down-press thresholds
-   BTFSS    PORTB, 0, 0       ; Left Key (Active Low: looking for a 0)
-   GOTO     CH_LEFT_EDGE
-   BTFSS    PORTB, 1, 0       ; Right Key (Active Low: looking for a 0)
-   GOTO     CH_RIGHT_EDGE
-   BTFSC    PORTB, 2, 0       ; Select Key (Active High: looking for a 1)
-   GOTO     CH_SELECT_EDGE
+SELECT_CHECK
+   ; ---- SELECT (RB2, bit2) ----
+   BTFSS    PORTB, 2, 0
+   BRA      SELECT_PRESSED
+   BCF      BTN_STATE, 2, 0
+   RETURN
+SELECT_PRESSED
+   BTFSC    BTN_STATE, 2, 0
+   RETURN
+   CALL     CH_SELECT_EDGE
    RETURN
 
 CH_LEFT_EDGE
    CALL     WAIT_DEBOUNCE
+<<<<<<< HEAD
    BTFSC    PORTB, 0, 0
    RETURN
    MOVLW    0x01
    MOVWF    BTN_STATE, 0
+=======
+   BTFSC    PORTB, 0, 0        ; still low after debounce?
+   RETURN                      ; no - was noise
+   BSF      BTN_STATE, 0, 0    ; latch left as handled
+>>>>>>> int
    GOTO     MENU_LEFT
 
 CH_RIGHT_EDGE
    CALL     WAIT_DEBOUNCE
    BTFSC    PORTB, 1, 0
    RETURN
+<<<<<<< HEAD
    MOVLW    0x01
    MOVWF    BTN_STATE, 0
+=======
+   BSF      BTN_STATE, 1, 0
+>>>>>>> int
    GOTO     MENU_RIGHT
 
 CH_SELECT_EDGE
    CALL     WAIT_DEBOUNCE
+<<<<<<< HEAD
    BTFSS    PORTB, 2, 0
    RETURN
    MOVLW    0x01
@@ -217,6 +264,17 @@ CH_SELECT_EDGE
 
 MENU_LEFT
     BCF     LATA, 4, 0      
+=======
+   BTFSC    PORTB, 2, 0
+   RETURN
+   BSF      BTN_STATE, 2, 0
+   GOTO     SELECT_PRESS
+
+
+MENU_LEFT     
+
+    ; 2. Clear 7-Segment display on PORTD
+>>>>>>> int
     CLRF    LATD, 0
     CALL    STOP_PLAY_GAME
 
@@ -233,8 +291,14 @@ SKIP_DECREMENT
     RETURN
   
    
+<<<<<<< HEAD
 MENU_RIGHT 
     BCF     LATA, 4, 0      
+=======
+MENU_RIGHT    
+
+    ; 2. Clear 7-Segment display on PORTD
+>>>>>>> int
     CLRF    LATD, 0
     CALL    STOP_PLAY_GAME
 
@@ -258,7 +322,163 @@ SELECT_PRESS
    RETURN
    CALL     START_PLAY_GAME
    RETURN
+   
+   
 
+; ######################### GAME MODULE (REWRITTEN) #########################
+; Vars used by this module:
+;   PLAY_MENU_ID    EQU 0x02   (already defined elsewhere)
+;   RNG_SEED        EQU 0x35   (already defined elsewhere)
+;   RANDOM_NUM      EQU 0x36   (already defined elsewhere)
+;   GAME_ACTIVE     EQU 0x38   (already defined elsewhere)
+;
+; New var needed (add near the other game vars):
+RA4_PREV        EQU 0x3A    ; bit0 = last known state of RA4 (new-number trigger pin)
+ 
+; NOTE: SEG_PHASE (0x39) is no longer used by this module and can be dropped
+; unless something else in your project still references it.
+ 
+; ------------------------------------------------------------------
+; INIT: RA0-3 = outputs (binary number), RA4 = input (new-number trigger)
+; ------------------------------------------------------------------
+INIT_PLAY_GAME
+    MOVLW   b'11110000'     ; RA0-3 output(0), RA4-7 input(1)
+    MOVWF   TRISA, 0
+    CLRF    LATA, 0
+ 
+    MOVLW   0xA5
+    MOVWF   RNG_SEED, 0
+ 
+    CLRF    GAME_ACTIVE, 0
+    CLRF    RA4_PREV, 0
+    RETURN
+  
+   
+
+<<<<<<< HEAD
+=======
+
+; ------------------------------------------------------------------
+; Called from SELECT_PRESS when MENU_ID == PLAY_MENU_ID
+; ------------------------------------------------------------------
+START_PLAY_GAME
+    CALL    GENERATE_NEW_NUMBER
+ 
+    MOVLW   0x01
+    MOVWF   GAME_ACTIVE, 0
+ 
+    ; Seed RA4_PREV with the pin's current state so that if it happens
+    ; to already be high when the game starts, we don't immediately
+    ; fire a spurious "new number" on the very next poll.
+    CLRF    RA4_PREV, 0
+    BTFSC   PORTA, 4, 0
+    BSF     RA4_PREV, 0, 0
+    RETURN
+ 
+; ------------------------------------------------------------------
+; Generates one new random digit (0-9) and pushes it to both outputs
+; ------------------------------------------------------------------
+GENERATE_NEW_NUMBER
+    CALL    UPDATE_RNG
+    MOVF    RNG_SEED, W, 0
+    ANDLW   0x0F
+    MOVWF   RANDOM_NUM, 0
+ 
+    MOVLW   .10
+    SUBWF   RANDOM_NUM, W, 0
+    BTFSS   STATUS, C, 0
+    BRA     GNN_VALID
+    MOVLW   .10
+    SUBWF   RANDOM_NUM, F, 0
+GNN_VALID
+    CALL    DISPLAY_7SEG
+    CALL    DISPLAY_BINARY
+    RETURN
+ 
+; ------------------------------------------------------------------
+; Puts RANDOM_NUM (0-9, fits in 4 bits) onto RA0-3
+; ------------------------------------------------------------------
+DISPLAY_BINARY
+    MOVF    RANDOM_NUM, W, 0
+    ANDLW   0x0F
+    MOVWF   LATA, 0         ; RA4-7 are inputs, so upper bits here are irrelevant
+    RETURN
+ 
+; ------------------------------------------------------------------
+; Unchanged - table lookup for 7-segment pattern
+; ------------------------------------------------------------------
+DISPLAY_7SEG
+    MOVLW   UPPER(SEGMENT_TABLE)
+    MOVWF   TBLPTRU, 0
+    MOVLW   HIGH(SEGMENT_TABLE)
+    MOVWF   TBLPTRH, 0
+    MOVLW   LOW(SEGMENT_TABLE)
+    MOVWF   TBLPTRL, 0
+ 
+    MOVF    RANDOM_NUM, W, 0
+    ADDWF   TBLPTRL, F, 0
+    MOVLW   0
+    ADDWFC  TBLPTRH, F, 0
+ 
+    TBLRD*
+    MOVF    TABLAT, W, 0
+    MOVWF   LATD, 0
+    RETURN
+ 
+; ------------------------------------------------------------------
+; Unchanged - RNG core
+; ------------------------------------------------------------------
+UPDATE_RNG
+    MOVF    SEC_COUNTER, W, 0
+    XORWF   RNG_SEED, W, 0
+    MULLW   .7
+    RRNCF   PRODL, F, 0
+    RRNCF   PRODL, W, 0
+    MOVWF   RNG_SEED, 0
+    RETURN
+ 
+; ------------------------------------------------------------------
+; Edge-detected poll for the "new number" trigger on RA4.
+; Call this once per main loop pass. Only regenerates on a clean
+; LOW->HIGH transition, and won't fire again until RA4 goes back low.
+; ------------------------------------------------------------------
+POLL_NEW_NUMBER_BUTTON
+    MOVF    GAME_ACTIVE, W, 0
+    BZ      PNB_DONE
+ 
+    BTFSS   PORTA, 4, 0         ; is RA4 currently high?
+    BRA     PNB_LOW
+ 
+    ; RA4 is currently high
+    BTFSC   RA4_PREV, 0, 0      ; was it already high last time we checked?
+    BRA     PNB_DONE            ; yes - already handled this pulse, do nothing
+ 
+    ; clean LOW->HIGH edge detected
+    CALL    GENERATE_NEW_NUMBER
+    BSF     RA4_PREV, 0, 0
+    BRA     PNB_DONE
+ 
+PNB_LOW
+    BCF     RA4_PREV, 0, 0
+ 
+PNB_DONE
+    RETURN
+ 
+; ------------------------------------------------------------------
+; In MAIN's LOOP, replace the old GAME_ACTIVE flashing block
+; (SKIP_GAME_FLASH / GAME_SEG_ON / STOP_GAME_FLASH and the
+; INCF SEG_PHASE stuff) with a single call, e.g. right where
+; MENU_BUTTON_CHECK is called:
+;
+;     CALL    MENU_BUTTON_CHECK
+;     CALL    POLL_NEW_NUMBER_BUTTON
+;
+; The SEC_COUNTER-driven tick (60s -> AGE_COUNTER++ etc.) is left
+; completely untouched since that's the tamagotchi stat engine, not
+; the game.
+ 
+   
+>>>>>>> int
 UPDATE_RGB
    MOVLW    0x01
    SUBWF    MENU_ID,W,0     
@@ -601,15 +821,20 @@ INIT_TIMER0
 
 RECALC_SERVO_TARGET
     MOVF    AGE_COUNTER, W, 0
-    MULLW   .23             
+    MULLW   .20	    ;23             
 
     BCF     STATUS, C, 0
 
+<<<<<<< HEAD
     MOVLW   LOW(.1200)
+=======
+    ; Base count offset updated to .1200 (~1.5ms Center Position at 32MHz)
+    MOVLW   LOW(.2256)
+>>>>>>> int
     ADDWF   PRODL, W, 0         
     MOVWF   SERVO_TARGET_L, 0    
     
-    MOVLW   HIGH(.1200)
+    MOVLW   HIGH(.2256)
     ADDWFC  PRODH, W, 0         
     MOVWF   SERVO_TARGET_H, 0      
     RETURN
@@ -643,7 +868,7 @@ SERVO_FRAME_WAIT
 
     RETURN
 
-; ######################### MAIN #########################   
+; ######################### MAIN #########################
 MAIN
     CALL INIT_OSC
     CALL INIT_RGB
@@ -651,8 +876,9 @@ MAIN
     CALL INIT_LM
     CALL INIT_TIMER0
     CALL INIT_SERVO
+    
     CALL INIT_PLAY_GAME
-    CALL RECALC_SERVO_TARGET    
+    CALL RECALC_SERVO_TARGET
 
 LOOP
     ; --- GAME TICK: event-driven, runs every loop pass (not timer-gated) ---
@@ -661,46 +887,46 @@ LOOP
     ; --- TIMER POLLING ENGINE ---
     BTFSS   INTCON, T0IF, 0
     GOTO    SKIP_CLOCK_TICK
-    
+
     MOVLW   high(.34286)
     MOVWF   TMR0H, 0
     MOVLW   low(.34286)
     MOVWF   TMR0L, 0
-    BCF     INTCON, T0IF, 0     
-    
+    BCF     INTCON, T0IF, 0
+
     INCF    SEC_COUNTER, 1, 0
 
     MOVLW   .60
     SUBWF   SEC_COUNTER, W, 0
     BTFSS   STATUS, Z, 0
-    GOTO    REFRESH_SYSTEM_VIEW 
+    GOTO    REFRESH_SYSTEM_VIEW
 
-    CLRF    SEC_COUNTER, 0      
+    CLRF    SEC_COUNTER, 0
     MOVLW   .10
-    ADDWF   AGE_COUNTER, 1, 0   
-    
+    ADDWF   AGE_COUNTER, 1, 0
+
     CALL    RECALC_SERVO_TARGET
 
     MOVLW   .100
     SUBWF   AGE_COUNTER, W, 0
-    BTFSC   STATUS, Z, 0        
-    GOTO    DEATH_STATE         
+    BTFSC   STATUS, Z, 0
+    GOTO    DEATH_STATE
 
     MOVLW   .30
     SUBWF   AGE_COUNTER, W, 0
-    BTFSC   STATUS, C, 0        
-    GOTO    CHECK_OLD_BRACKET   
-    
+    BTFSC   STATUS, C, 0
+    GOTO    CHECK_OLD_BRACKET
+
     MOVLW   .0
     MOVWF   SHAPE_STATE, 0
-    GOTO    REFRESH_SYSTEM_VIEW 
+    GOTO    REFRESH_SYSTEM_VIEW
 
 CHECK_OLD_BRACKET
     MOVLW   .60
     SUBWF   AGE_COUNTER, W, 0
-    BTFSC   STATUS, C, 0        
-    GOTO    SET_OLD_STATE       
-    
+    BTFSC   STATUS, C, 0
+    GOTO    SET_OLD_STATE
+
     MOVLW   .1
     MOVWF   SHAPE_STATE, 0
     GOTO    REFRESH_SYSTEM_VIEW
@@ -710,23 +936,23 @@ SET_OLD_STATE
     MOVWF   SHAPE_STATE, 0
 
 REFRESH_SYSTEM_VIEW
-    CALL    REFRESH_GAME_FRAME  
+    CALL    REFRESH_GAME_FRAME
 
 SKIP_CLOCK_TICK
     CALL    REFRESH_SERVO_PULSE
 
-    BCF     INTCON, GIE, 0  
+    BCF     INTCON, GIE, 0
     CALL    SEND_FRAME_FROM_RAM
-    BSF     INTCON, GIE, 0  
-    
-    CALL    MENU_BUTTON_CHECK
-    
-    GOTO LOOP
+    BSF     INTCON, GIE, 0
 
+    CALL    MENU_BUTTON_CHECK
+    CALL    POLL_NEW_NUMBER_BUTTON
+
+    GOTO LOOP
+ 
 ; ######################### PERMANENT DEATH TRAP #########################
 DEATH_STATE
     GOTO    DEATH_STATE
-    
     
 ; ######################### GRAPHIC TEMPLATES DATABASE #########################
     ORG 0x0600  
