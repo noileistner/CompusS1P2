@@ -600,7 +600,7 @@ SKIP_GAME_TIMER
 SKIP_NEGLECT_TICK
     
     ;how many seconds to age
-    MOVLW   .5		;TODO; 60 (1min)
+    MOVLW   .60		;TODO; 60 (1min)
     SUBWF   SEC_COUNTER, W, 0
     BTFSS   STATUS, Z, 0
     RETURN
@@ -829,12 +829,12 @@ INIT_SERVO
 
 RECALC_SERVO_TARGET
     MOVF    AGE_COUNTER, W, 0
-    MULLW   .60		;TODO: ADJUST (was 23)
+    MULLW   .30		;TODO: ADJUST (was 23)
     BCF     STATUS, C, 0
-    MOVLW   LOW(.2000)	;TODO: ADJUST (was 1200/ 2000)
+    MOVLW   LOW(.1500)	;TODO: ADJUST (was 1200/ 2000)
     ADDWF   PRODL, W, 0
     MOVWF   SERVO_TARGET_L, 0
-    MOVLW   HIGH(.2000)
+    MOVLW   HIGH(.1500)
     ADDWFC  PRODH, W, 0
     MOVWF   SERVO_TARGET_H, 0
     RETURN
@@ -861,12 +861,14 @@ SERVICE_SERVO
 
     BSF     LATC, SERVO_PIN, 0
 SERVO_PULSE_LOOP
+    BCF INTCON, GIE, 0    
     NOP
     DECFSZ  SERVO_ON_TIME, 1, 0
     GOTO    SERVO_PULSE_LOOP
     DECFSZ  SERVO_ON_TIME_H, 1, 0
     GOTO    SERVO_PULSE_LOOP
     BCF     LATC, SERVO_PIN, 0
+    BSF INTCON, GIE, 0    
     RETURN
     
 ; ######################### --- MAIN --- #########################    
