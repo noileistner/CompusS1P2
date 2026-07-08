@@ -1,9 +1,9 @@
 LIST P=PIC18F4321    F=INHX32   
     #include <p18f4321.inc> 
-    CONFIG  OSC=INTIO2; Internal oscillator @ 16MHz 
+    CONFIG  OSC=INTIO2; Internal oscillator @ 32MHz 
     CONFIG  PBADEN=DIG ; PORTB = DIGital 
     CONFIG  WDT=OFF    ; Watch Dog Timer Deactivated 
-    CONFIG MCLRE = OFF ; Makes RA3 usable
+    CONFIG MCLRE = OFF ; no reset
 
     ORG 0x0000 
     GOTO    MAIN 
@@ -21,7 +21,7 @@ BTN_STATE       EQU 0x23    ; pressed or not
 
 RNG_SEED        EQU 0x24    ; running LFSR state
 RANDOM_NUM      EQU 0x25    ; latest generated 4-bit number (0-15)
-RNG_COUNTER     EQU 0x26    ; garbage
+RNG_COUNTER     EQU 0x26    ; garbage (random)
 GAME_ACTIVE	EQU 0x27    ; active or not
 RA4_PREV	EQU 0x28    ; newNum btn state
 TOKENS		EQU 0x29    ; max 5
@@ -35,8 +35,8 @@ TEMP_H		EQU 0x34
 		    
 		
 QTICK_CNT       EQU 0x40    ; counts 0-3 (quarter-ms subticks)
-MS_TICKS_L      EQU 0x41    ; free-running quarter-ms counter, low byte
-MS_TICKS_H      EQU 0x42    ; free-running quarter-ms counter, high byte
+MS_TICKS_L      EQU 0x41    ; quarter-ms counter, low byte
+MS_TICKS_H      EQU 0x42    ; quarter-ms counter, high byte
 MS_TICK_FLAG	EQU 0x43    ; flag 
 
     
@@ -45,7 +45,7 @@ INIT_OSC   ; Configure the microcontroller
    MOVLW   b'01110000'      ;32MHz fosc
    MOVWF   OSCCON,0  
     
-   MOVLW   b'01000000'	;PLLEN on 8x4
+   MOVLW   b'01000000'	;PLLEN on 8x4 (so 32)
    MOVWF   OSCTUNE,0
    RETURN 
    
@@ -71,14 +71,14 @@ INIT_PORTS
    
    ;game 
    BCF	    TRISA,6,0	;ra6 OUT = RanGen
-   BCF	    TRISA,0,0	;ran num bin OUT
-   BCF	    TRISA,1,0	;
-   BCF	    TRISA,2,0	;
-   BCF	    TRISA,3,0	;ran num bin OUT
+   BCF	    TRISA,0,0	;ran num bin OUT 0
+   BCF	    TRISA,1,0	; 1
+   BCF	    TRISA,2,0	;2
+   BCF	    TRISA,3,0	;ran num bin OUT 3
    SETF     ADCON1,0   ; Make all pins digital
    BSF	    TRISA,4,0	;ra4 in newnum
    BSF	    TRISA,5,0	;ra5 in playing (stop gen)
-   BSF	    TRISB,4,0	;rB4 in resPulse (idk)	NEG LOGIC
+   BSF	    TRISB,4,0	;rB4 in resPulse (idk) NEG LOGIC
   
    RETURN
    
@@ -124,7 +124,7 @@ HIGH_ISR
     INFSNZ  MS_TICKS_L, 1, 0
     INCF    MS_TICKS_H, 1, 0
 
-    ; roll 4 subticks into one "1ms" event for SEC_COUNTER logic
+    ; roll 4 subticks into "1ms" event for SEC_COUNTER logic
     INCF    QTICK_CNT, 1, 0
     MOVLW   .4
     SUBWF   QTICK_CNT, W, 0
@@ -132,7 +132,7 @@ HIGH_ISR
     RETFIE  FAST
 
     CLRF    QTICK_CNT, 0
-    BSF     MS_TICK_FLAG, 0, 0   ; tell main loop "1ms elapsed"
+    BSF     MS_TICK_FLAG, 0, 0   ;1ms elapsed flag
 
     RETFIE  FAST
     
@@ -182,13 +182,13 @@ RGB_0
     
 MENU_BUTTON_CHECK
    ; ---- LEFT
-   BTFSS    PORTB, 0, 0        ;pin high (released)? skip if so
-   BRA      LEFT_PRESSED       ;pin is low -> button currently pressed
-   BCF      BTN_STATE, 0, 0    ;released -> clear latch
+   BTFSS    PORTB, 0, 0        ;pin high (released) skip if so
+   BRA      LEFT_PRESSED       ;pin is low : button currently pressed
+   BCF      BTN_STATE, 0, 0    ;released : clear latch
    BRA      RIGHT_CHECK
 LEFT_PRESSED
    BTFSC    BTN_STATE, 0, 0    ; already latched (handled this press)?
-   BRA      RIGHT_CHECK        ; yes -> nothing to do
+   BRA      RIGHT_CHECK        ; yes = nothing to do
    CALL     CH_LEFT_EDGE
 
 RIGHT_CHECK
@@ -217,7 +217,7 @@ SELECT_PRESSED
 CH_LEFT_EDGE
    CALL     WAIT_DEBOUNCE
    BTFSC    PORTB, 0, 0        ; still low after debounce?
-   RETURN                      ; no - was noise
+   RETURN                      ; no : was noise
    BSF      BTN_STATE, 0, 0    ; latch left as handled
    GOTO     MENU_LEFT
 
@@ -301,7 +301,7 @@ CMD_ZERO
 WAIT_FOR_RELEASE
     BTFSS   PORTB, 2, 0    ; Is RB2 High (released)? Skip if yes.
     BRA     WAIT_FOR_RELEASE ;
-    RESET
+    RESET   ;RESET SYSTEM
     
     RETURN
 
@@ -311,23 +311,23 @@ CMD_ONE
 
 CMD_TWO
     ;check if health already max
-    MOVF    HEALTH_STATE, F, 0  ; Move HEALTH_STATE to itself to update STATUS flags
+    MOVF    HEALTH_STATE, F, 0  ; Move HEALTH_STATE for STATUS flags
     BTFSC   STATUS, Z, 0        
     RETURN                      
     
-    ;Check if we have tokens ---
+    ;Check if we have tokens
     MOVF    TOKENS, F, 0   ; Moving a register to itself updates the STATUS flags
     BTFSC   STATUS, Z, 0        ; Is TOKEN_COUNT == 0?
-    RETURN                      ;No tokens available, reject the feed command.
+    RETURN                      ;No tokens available, reject
 
-    ;Pay 1 token ---
-    DECF    TOKENS, 1, 0   ; Subtract 1 token from inventory
+    ;Pay 1 token
+    DECF    TOKENS, 1, 0   ; Subtract 1 token 
     
     CALL    DISPLAY_TOKEN
     
-    CLRF    HEALTH_STATE, 0     ; 1. Force state back to 0 (Default Green)
-    CLRF    HUNGER_COUNTER, 0  ; 2. Wipe the 90-second window back to zero
-    CALL    REFRESH_GAME_FRAME  ; 3. Regenerate the frame colors instantly
+    CLRF    HEALTH_STATE, 0     ; Force state back to 0
+    CLRF    HUNGER_COUNTER, 0  ;  Wipe the 90-second window back to zero
+    CALL    REFRESH_GAME_FRAME  ; render
     RETURN
     
 ; ####### GAME
@@ -375,19 +375,19 @@ GNN_VALID
     RETURN
     
     
-; Game "MAIN"
-POLL_NEW_NUMBER_BUTTON
+; check if game started
+POLL_PLAYING
     ; Check if the game is active
     MOVF    GAME_ACTIVE, W, 0
     BZ      PNB_DONE            ; If game mode is 0, exit out safely
     
-    ; Check if RA5 is high (Stop command given)
+    ; Check if RA5 is high 
     BTFSC   PORTA, 5, 0         ; Read pin state
-    BRA     PNB_EXIT            ; High -> Turn off game mode
-    RETURN                      ; Low -> Do nothing, keep rolling
+    BRA     PNB_EXIT         
+    RETURN                      
 
 PNB_EXIT
-    CLRF    GAME_ACTIVE, 0      ; Shut down the minigame engine
+    CLRF    GAME_ACTIVE, 0      ; Shut down
 PNB_DONE
     RETURN
 
@@ -395,7 +395,7 @@ PNB_DONE
 DISPLAY_BINARY
     MOVF    RANDOM_NUM, W, 0
     ANDLW   0x0F
-    MOVWF   LATA, 0         ; RA4-7 are inputs, so upper bits here are irrelevant
+    MOVWF   LATA, 0         ; RA4-7 are inputs, so not importnatn
     RETURN
  
 DISPLAY_7SEG
@@ -454,20 +454,21 @@ POLL_RESULT_PULSE
     MOVF    TEMP_H, W, 0
     BTFSS   STATUS, Z, 0
     BRA     PRP_LONG_CHECK
-    ; TEMP_H==0 case handled below anyway; simplest: just check TEMP_H!=0 OR TEMP_L>=6
+    
 PRP_LONG_CHECK
     MOVF    TEMP_H, W, 0
-    BNZ     PRP_ADD_TOKEN         ; overflowed a byte -> definitely long
+    BNZ     PRP_ADD_TOKEN         ; overflowed a byte: definitely long (more than 1.5)
     MOVLW   .6
     SUBWF   TEMP_L, W, 0
     BTFSS   STATUS, C, 0
-    BRA     PRP_DONE              ; < 6 ticks -> short pulse, ignore
+    BRA     PRP_DONE              ; < 6 ticks short pulse, ignore (less tahn 1.5ms)
 PRP_ADD_TOKEN
     MOVLW   .5
     SUBWF   TOKENS, W, 0   ; W = TOKEN - 5
     BTFSC   STATUS, Z, 0        ; TOKEN == 5?
     BRA	    PRP_DONE                    
     INCF    TOKENS, 1, 0   ;Safe to add 1 token
+    CALL WAIT_DEBOUNCE	;TEST: debounce for manual testing
     CALL    DISPLAY_TOKEN
     BRA     PRP_DONE
 
@@ -502,15 +503,15 @@ DISPLAY_TOKEN
     MOVF    TABLAT, W, 0
     MOVWF   LATD, 0
     RETURN
-; ######################### --- old modules (age, led, motor) --- #########################
+; ######################### --- already tested modules (age, led, motor) --- #########################
     
 ; ####### age
-  ; ---- extra vars (put with your other EQUs) ----
+
 SEC_COUNTER     EQU 0x50    ; ticks 0-59
-AGE_COUNTER     EQU 0x51    ; 0,10,20...100
+AGE_COUNTER     EQU 0x51    ; 0,100
 SHAPE_STATE     EQU 0x52    ; 0 baby / 1 adult / 2 old
 HEALTH_STATE    EQU 0x53    ; 0 green / 1 yellow / 2 red
-MS_ACC          EQU 0x54    ; counts MS_TICK_FLAG events up to 1000 (needs 2 bytes if you want exact 1000; see note)
+MS_ACC          EQU 0x54    ; counts MS_TICK_FLAG events up to 100
 MS_ACC_H        EQU 0x55
 	
 HUNGER_COUNTER  EQU 0x56    ; 0-90 seconds
@@ -527,8 +528,7 @@ INIT_TAMAGOTCHI
     CLRF    MS_ACC_H, 0
     RETURN
 
-; Call this once per LOOP pass. Only does work when MS_TICK_FLAG is set,
-; so it costs ~nothing on passes where no ms has elapsed.
+;main time engine, only doesthings when 1ms flag
 SERVICE_AGE_ENGINE
     BTFSS   MS_TICK_FLAG, 0, 0
     RETURN
@@ -554,26 +554,26 @@ SERVICE_AGE_ENGINE
     
     ;#### RANGEN TICKS
     MOVF    GAME_ACTIVE, W, 0
-    BZ      GAME_OFF_BYPASS         ; If game isn't active, bypass and turn off pin
+    BZ      GAME_OFF_BYPASS         ; If game not active, bypass and turn off pin
     
-    INCF    GAME_2SEC_TIMER, 1, 0   ; Add 1 second to the game timer
+    INCF    GAME_2SEC_TIMER, 1, 0   ; Add 1 second to game timer
     MOVLW   .2
-    SUBWF   GAME_2SEC_TIMER, W, 0   ; Check if 2 seconds have passed
+    SUBWF   GAME_2SEC_TIMER, W, 0   ; 2 seconds  passed?
     BTFSS   STATUS, Z, 0
-    BRA     TURN_PIN_ON             ; Not at 2 seconds yet (it's at 1 second), turn pin ON
+    BRA     TURN_PIN_ON             ; Not at 2 seconds yet (at 1 second), turn pin ON
     
-    ; --- 2 SECONDS REACHED: Generate & Drop Pin LOW ---
+    ;--- 2 SECONDS REACHED
     CLRF    GAME_2SEC_TIMER, 0      ; Reset 2-second counter
     CALL    GENERATE_NEW_NUMBER     ; Automatically roll and display a new number
     BCF     LATA, 6, 0              ; Turn ranGen (RA6) LOW immediately when number changes
     BRA     SKIP_GAME_TIMER
     
 TURN_PIN_ON
-    BSF     LATA, 6, 0              ; 1 second has passed since generation, turn ranGen HIGH
+    BSF     LATA, 6, 0              ; 1 second has passed since generation, turn ranGen on
     BRA     SKIP_GAME_TIMER
 
 GAME_OFF_BYPASS
-    BCF     LATA, 6, 0              ; Safety: Ensure pin is completely off if game is inactive
+    BCF     LATA, 6, 0              ; pin off if game is inactive
 
 SKIP_GAME_TIMER
     
@@ -583,19 +583,19 @@ SKIP_GAME_TIMER
     MOVLW   .90                         ;TODO: make 90
     SUBWF   HUNGER_COUNTER, W, 0
     BTFSS   STATUS, Z, 0
-    GOTO    SKIP_NEGLECT_TICK           ; Not 90 seconds yet, proceed with regular age checks
+    GOTO    SKIP_NEGLECT_TICK           ; Not 90 seconds yet
 
-    ; 90 seconds hit! Advance health state
+    ;--- 90 seconds reached
     CLRF    HUNGER_COUNTER, 0
-    INCF    HEALTH_STATE, 1, 0          ; Move Green (0) -> Yellow (1) -> Red (2)
+    INCF    HEALTH_STATE, 1, 0          ; Move 0,1,2
 
-    ; Check if health has degraded past Red (Value 3 = Death)
+    ; Check if health has degraded past 3
     MOVLW   .3
     SUBWF   HEALTH_STATE, W, 0
     BTFSC   STATUS, Z, 0
-    GOTO    DEATH_STATE                 ; Failed to clean/feed in time! Permanent trap.
+    GOTO    DEATH_STATE                 ; Die
 
-    ; Update matrix buffers instantly so user sees the color shift
+    ;Render after change
     CALL    REFRESH_GAME_FRAME
 
 SKIP_NEGLECT_TICK
@@ -650,10 +650,11 @@ BYTE_BUFF       EQU 0x60
 BIT_COUNT       EQU 0x61
 LED_COUNT       EQU 0x62
 RESET_COUNT     EQU 0x63
-FRAME_BUFF      EQU 0x100   ; 64 px * 3 bytes = 192 bytes, pick a free bank
+FRAME_BUFF      EQU 0x100   ; 64 px * 3 bytes = 192 bytes
 GRID_PIN        EQU 0       ; RE0
 	
 SYS_FLAGS      EQU 0x64 
+      
 #DEFINE LED_DIRTY_FLAG  SYS_FLAGS, 0
 
 INIT_LM
@@ -670,9 +671,7 @@ INIT_LM
     
     RETURN
 
-; --- unchanged logic from your original REFRESH_GAME_FRAME / RENDER_LOOP ---
-; (copy verbatim: TBLPTR setup by SHAPE_STATE, RENDER_LOOP, SET_COLOR_*, WRITE_BLANK)
-; This part does no timing-sensitive work, only table reads + RAM writes.
+;table reads + RAM writes.
 REFRESH_GAME_FRAME
     BSF LED_DIRTY_FLAG
     
@@ -810,7 +809,7 @@ SEND_DONE
 
 SEND_RESET
     BCF     LATE, GRID_PIN, 0
-    MOVLW   .300                ; scaled down from .200 (~4x fewer loop passes needed)
+    MOVLW   .300                ; TODO: check value, 300 for safe
     MOVWF   RESET_COUNT, 0
 RESET_LOOP
     DECFSZ  RESET_COUNT, 1, 0
@@ -847,8 +846,7 @@ RECALC_SERVO_TARGET
     MOVWF   SERVO_TARGET_H, 0
     RETURN
 
-; Call once per LOOP pass. Non-blocking except during the ~1-2ms
-; active pulse itself (unavoidable for bit-banged servo signaling).
+
 SERVICE_SERVO
     ; has 20ms (80 quarter-ms ticks) elapsed since last pulse?
     MOVF    MS_TICKS_L, W, 0
@@ -856,7 +854,7 @@ SERVICE_SERVO
     MOVF    MS_TICKS_H, W, 0
     SUBWFB  SERVO_NEXT_H, W, 0
     BTFSC   STATUS, C, 0
-    RETURN                      ; next-time still in the future -> not due
+    RETURN                      ; next-time still in the future : not due
 
     ; schedule next pulse 80 ticks (20ms) from now
     MOVLW   .80
@@ -871,13 +869,13 @@ SERVICE_SERVO
 SERVO_PULSE_LOOP
     MOVLW   .1
     SUBWF   SERVO_ON_TIME, F, 0     ; L -= 1
-    BTFSS   STATUS, C, 0            ; C=0 (borrow) -> don't skip -> execute DECF
+    BTFSS   STATUS, C, 0            ; C=0 (borrow) : don't skip : execute DECF
     DECF    SERVO_ON_TIME_H, F, 0   ; only runs on borrow
     MOVF    SERVO_ON_TIME, W, 0
     IORWF   SERVO_ON_TIME_H, W, 0
     BNZ     SERVO_PULSE_LOOP
     BCF     LATC, SERVO_PIN, 0
-    ;BSF INTCON, GIE, 0    
+    ;BSF INTCON, GIE, 0  ;test if interrupt is problem  
     RETURN
     
 ; ######################### --- MAIN --- #########################    
@@ -901,7 +899,7 @@ LOOP
     
     CALL    SERVICE_AGE_ENGINE
     CALL    MENU_BUTTON_CHECK
-    CALL    POLL_NEW_NUMBER_BUTTON
+    CALL    POLL_PLAYING
     CALL    POLL_RESULT_PULSE
     CALL    SERVICE_SERVO
     
