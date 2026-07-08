@@ -60,7 +60,8 @@ INIT_PORTS
    
    ;PB
    BSF	    TRISB,0,0	;RB1 in
-   BSF	    TRISB,1,0	;RB2 in
+   BSF	    TRISB,1,0	;RB1 in
+   BSF	    TRISB,2,0	;RB2 in
    BSF	    TRISB,3,0	;RB3 in
    BCF      INTCON2, RBPU,0   ; enable PORTB pull-ups
    

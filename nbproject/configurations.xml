@@ -14,6 +14,7 @@
                    projectFiles="true">
       <itemPath>assembly.asm</itemPath>
       <itemPath>main2.asm</itemPath>
+      <itemPath>motortest.asm</itemPath>
     </logicalFolder>
     <logicalFolder name="ExternalFiles"
                    displayName="Important Files"
@@ -119,6 +120,14 @@
         <property key="voltagevalue" value="4.75"/>
       </PICkit3PlatformTool>
       <item path="assembly.asm" ex="true" overriding="false">
+        <MPASMWIN-AS>
+        </MPASMWIN-AS>
+        <MPASMWIN-LD>
+        </MPASMWIN-LD>
+        <mpasmsuite>
+        </mpasmsuite>
+      </item>
+      <item path="main2.asm" ex="true" overriding="false">
       </item>
       <mpasmsuite>
         <property key="absolute-mode" value="false"/>
