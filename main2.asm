@@ -601,7 +601,7 @@ SKIP_GAME_TIMER
 SKIP_NEGLECT_TICK
     
     ;how many seconds to age
-    MOVLW   .60		;TODO; 60 (1min)
+    MOVLW   .5		;TODO; 60 (1min)    AGE
     SUBWF   SEC_COUNTER, W, 0
     BTFSS   STATUS, Z, 0
     RETURN
@@ -830,12 +830,12 @@ INIT_SERVO
 
 RECALC_SERVO_TARGET
     MOVF    AGE_COUNTER, W, 0
-    MULLW   .30		;TODO: ADJUST (was 23)
+    MULLW   .20		;ADJUSTED ( true range is 500 to 2500us)
     BCF     STATUS, C, 0
-    MOVLW   LOW(.1500)	;TODO: ADJUST (was 1200/ 2000)
+    MOVLW   LOW(.500)	
     ADDWF   PRODL, W, 0
     MOVWF   SERVO_TARGET_L, 0
-    MOVLW   HIGH(.1500)
+    MOVLW   HIGH(.500)
     ADDWFC  PRODH, W, 0
     MOVWF   SERVO_TARGET_H, 0
     RETURN
@@ -862,14 +862,15 @@ SERVICE_SERVO
 
     BSF     LATC, SERVO_PIN, 0
 SERVO_PULSE_LOOP
-    BCF INTCON, GIE, 0    
-    NOP
-    DECFSZ  SERVO_ON_TIME, 1, 0
-    GOTO    SERVO_PULSE_LOOP
-    DECFSZ  SERVO_ON_TIME_H, 1, 0
-    GOTO    SERVO_PULSE_LOOP
+    MOVLW   .1
+    SUBWF   SERVO_ON_TIME, F, 0     ; L -= 1
+    BTFSS   STATUS, C, 0            ; C=0 (borrow) -> don't skip -> execute DECF
+    DECF    SERVO_ON_TIME_H, F, 0   ; only runs on borrow
+    MOVF    SERVO_ON_TIME, W, 0
+    IORWF   SERVO_ON_TIME_H, W, 0
+    BNZ     SERVO_PULSE_LOOP
     BCF     LATC, SERVO_PIN, 0
-    BSF INTCON, GIE, 0    
+    ;BSF INTCON, GIE, 0    
     RETURN
     
 ; ######################### --- MAIN --- #########################    
@@ -919,6 +920,9 @@ DEATH_STATE
     BCF  LATC,5,0
     BCF  LATC,6,0
     BSF  LATC,7,0
+    
+    CALL    SERVICE_SERVO
+    
     GOTO    DEATH_STATE
  
 ; ######################### GRAPHIC TEMPLATES DATABASE #########################

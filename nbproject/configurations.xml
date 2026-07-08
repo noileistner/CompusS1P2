@@ -127,7 +127,7 @@
         <mpasmsuite>
         </mpasmsuite>
       </item>
-      <item path="main2.asm" ex="true" overriding="false">
+      <item path="motortest.asm" ex="true" overriding="false">
       </item>
       <mpasmsuite>
         <property key="absolute-mode" value="false"/>
