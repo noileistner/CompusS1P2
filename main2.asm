@@ -580,7 +580,7 @@ SKIP_GAME_TIMER
     
     ;##### HUNGER
     INCF    HUNGER_COUNTER, 1, 0
-    MOVLW   .90                         ;TODO: make 90
+    MOVLW   .15                         ;TODO: make 90
     SUBWF   HUNGER_COUNTER, W, 0
     BTFSS   STATUS, Z, 0
     GOTO    SKIP_NEGLECT_TICK           ; Not 90 seconds yet
@@ -589,8 +589,8 @@ SKIP_GAME_TIMER
     CLRF    HUNGER_COUNTER, 0
     INCF    HEALTH_STATE, 1, 0          ; Move 0,1,2
 
-    ; Check if health has degraded past 3
-    MOVLW   .3
+    ; Check if health has degraded past 2
+    MOVLW   .2
     SUBWF   HEALTH_STATE, W, 0
     BTFSC   STATUS, Z, 0
     GOTO    DEATH_STATE                 ; Die
@@ -809,7 +809,7 @@ SEND_DONE
 
 SEND_RESET
     BCF     LATE, GRID_PIN, 0
-    MOVLW   .300                ; TODO: check value, 300 for safe
+    MOVLW   .300                ; check value, 300 for safe
     MOVWF   RESET_COUNT, 0
 RESET_LOOP
     DECFSZ  RESET_COUNT, 1, 0
@@ -927,6 +927,11 @@ DEATH_STATE
     BSF  LATC,7,0
     
     CALL    SERVICE_SERVO
+    CALL    REFRESH_GAME_FRAME
+    
+    BCF INTCON, GIE, 0            
+    CALL SEND_FRAME_FROM_RAM      
+    BSF INTCON, GIE, 0 
     
     GOTO    DEATH_STATE
  
