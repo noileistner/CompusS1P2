@@ -601,7 +601,7 @@ SKIP_GAME_TIMER
 SKIP_NEGLECT_TICK
     
     ;how many seconds to age
-    MOVLW   .5		;TODO; 60 (1min)    AGE
+    MOVLW   .60		;TODO; 60 (1min)    AGE
     SUBWF   SEC_COUNTER, W, 0
     BTFSS   STATUS, Z, 0
     RETURN
@@ -659,8 +659,15 @@ SYS_FLAGS      EQU 0x64
 INIT_LM
     BCF     TRISE, GRID_PIN, 0
     BCF     LATE, GRID_PIN, 0
-    
+
+    CALL    WAIT_DEBOUNCE
+    CALL    WAIT_DEBOUNCE
+    CALL    WAIT_DEBOUNCE
+
+    CALL    SEND_RESET
     CALL    REFRESH_GAME_FRAME
+    CALL    SEND_FRAME_FROM_RAM
+    
     RETURN
 
 ; --- unchanged logic from your original REFRESH_GAME_FRAME / RENDER_LOOP ---
